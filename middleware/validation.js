@@ -14,7 +14,7 @@ const quoteValidation = {
 
     update: Joi.object({
         metal_type: Joi.string().max(100).optional(),
-        metal_weight: Joi.number().precision(2).min(0.1).max(500).optional(),
+        metal_weight: Joi.number().precision(2).min(0).max(500).optional(),
         metal_wastage: Joi.number().precision(2).min(0).max(50).optional(),
         metal_markup: Joi.number().precision(2).min(0).max(200).optional(),
         cad_hours: Joi.number().precision(2).min(0).max(200).optional(),
