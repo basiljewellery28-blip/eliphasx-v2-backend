@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { validate, quoteValidation } = require('../middleware/validation');
+const PricingService = require('../services/pricingService'); // Import PricingService
 
 // GET all quotes for user
 router.get('/', authenticateToken, async (req, res) => {
@@ -62,13 +63,17 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
     try {
         const { calculateQuote } = require('../services/calculationService');
 
-        // 1. Calculate totals based on input
-        const calculated = calculateQuote(req.body);
+        // 1. Fetch System Rates
+        const systemRates = await PricingService.getSystemRates();
+
+        // 2. Calculate totals using system rates
+        const calculated = calculateQuote(req.body, systemRates);
         const { subtotalCost, totalPrice } = calculated.totals;
+        const usedSpotPrice = calculated.sections.metal.spotPrice; // Validated price
 
         const {
             client_id, piece_category, brief_id, metal_type, metal_weight,
-            metal_spot_price, metal_wastage, metal_markup, design_variations
+            metal_wastage, metal_markup, design_variations
         } = req.body;
 
         // Generate quote number
@@ -85,7 +90,7 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
 
         const values = [
             quoteNumber, client_id, req.user.id, piece_category, brief_id,
-            metal_type, metal_weight, metal_spot_price, metal_wastage, metal_markup,
+            metal_type, metal_weight, usedSpotPrice, metal_wastage, metal_markup,
             JSON.stringify(design_variations || []),
             subtotalCost, totalPrice
         ];
@@ -103,16 +108,20 @@ router.put('/:id', authenticateToken, validate(quoteValidation.update), async (r
     try {
         const { calculateQuote } = require('../services/calculationService');
 
-        // 1. Calculate totals based on input
-        const calculated = calculateQuote(req.body);
-        const { subtotalCost, totalPrice, profit, margin } = calculated.totals;
+        // 1. Fetch System Rates
+        const systemRates = await PricingService.getSystemRates();
 
-        // 2. Prepare update data
+        // 2. Calculate totals using system rates
+        const calculated = calculateQuote(req.body, systemRates);
+        const { subtotalCost, totalPrice } = calculated.totals;
+        const usedSpotPrice = calculated.sections.metal.spotPrice; // Validated price
+
+        // 3. Prepare update data
         const updateData = {
             ...req.body,
             subtotal: subtotalCost,
             total: totalPrice,
-            // We could also store profit/margin if we added columns for them
+            metal_spot_price: usedSpotPrice // Enforce validated price
         };
 
         const fields = [];
@@ -126,7 +135,7 @@ router.put('/:id', authenticateToken, validate(quoteValidation.update), async (r
             'stone_categories', 'stone_markup',
             'finishing_cost', 'plating_cost', 'finishing_markup',
             'findings', 'findings_markup',
-            'design_variations', 'subtotal', 'total', 'status'
+            'design_variations', 'subtotal', 'total', 'status' // status can be: draft, pending_approval, approved, completed
         ];
 
         for (const field of allowedFields) {

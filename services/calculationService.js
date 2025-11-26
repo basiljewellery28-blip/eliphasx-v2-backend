@@ -1,10 +1,18 @@
-const calculateQuote = (quote) => {
+const calculateQuote = (quote, systemRates = null) => {
     // Helper to safely parse numbers
     const num = (val) => parseFloat(val) || 0;
 
     // 1. Metal Calculations
     const metalWeight = num(quote.metal_weight);
-    const metalSpotPrice = num(quote.metal_spot_price);
+    let metalSpotPrice = num(quote.metal_spot_price);
+
+    // Override with system rate if available
+    if (systemRates && systemRates.metalPrices && quote.metal_type) {
+        if (systemRates.metalPrices[quote.metal_type]) {
+            metalSpotPrice = parseFloat(systemRates.metalPrices[quote.metal_type]);
+        }
+    }
+
     const metalWastage = num(quote.metal_wastage);
     const metalMarkup = num(quote.metal_markup);
 
@@ -36,7 +44,20 @@ const calculateQuote = (quote) => {
     const stoneCost = stones.reduce((total, stone) => {
         const count = num(stone.count);
         const costPerStone = num(stone.cost_per_stone);
-        const settingCost = num(stone.setting_cost);
+        let settingCost = num(stone.setting_cost);
+
+        // Override with system rate if available
+        if (systemRates && systemRates.stonePrices && stone.type && stone.setting_style && stone.size_category) {
+            const match = systemRates.stonePrices.find(p =>
+                p.stone_type === stone.type &&
+                p.setting_style === stone.setting_style &&
+                p.size_category === stone.size_category
+            );
+            if (match) {
+                settingCost = parseFloat(match.cost);
+            }
+        }
+
         return total + (count * (costPerStone + settingCost));
     }, 0);
 
@@ -70,7 +91,7 @@ const calculateQuote = (quote) => {
 
     return {
         sections: {
-            metal: { cost: metalCost, price: metalPrice },
+            metal: { cost: metalCost, price: metalPrice, spotPrice: metalSpotPrice },
             cad: { cost: cadCost, price: cadPrice },
             manufacturing: { cost: mfgCost, price: mfgPrice },
             stones: { cost: stoneCost, price: stonePrice },
