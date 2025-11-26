@@ -60,6 +60,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // POST create quote
 router.post('/', authenticateToken, validate(quoteValidation.create), async (req, res) => {
+    console.log('Backend: Received POST /quotes request');
+    console.log('Request body keys:', Object.keys(req.body));
     try {
         const { calculateQuote } = require('../services/calculationService');
 
@@ -73,7 +75,7 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
 
         const {
             client_id, piece_category, brief_id, metal_type, metal_weight,
-            metal_wastage, metal_markup, design_variations
+            metal_wastage, metal_markup, design_variations, cad_markup_image
         } = req.body;
 
         // Generate quote number
@@ -83,8 +85,8 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
       INSERT INTO quotes (
         quote_number, client_id, user_id, piece_category, brief_id,
         metal_type, metal_weight, metal_spot_price, metal_wastage, metal_markup,
-        design_variations, subtotal, total, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'draft')
+        design_variations, cad_markup_image, subtotal, total, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *
     `;
 
@@ -92,14 +94,16 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
             quoteNumber, client_id, req.user.id, piece_category, brief_id,
             metal_type, metal_weight, usedSpotPrice, metal_wastage, metal_markup,
             JSON.stringify(design_variations || []),
-            subtotalCost, totalPrice
+            cad_markup_image || null,
+            subtotalCost, totalPrice,
+            'draft' // status
         ];
 
         const result = await db.query(query, values);
         res.status(201).json({ quote: result.rows[0], calculations: calculated });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Failed to create quote' });
+        console.error('Quote Creation Error:', error);
+        res.status(500).json({ error: 'Failed to create quote', details: error.message });
     }
 });
 
@@ -135,7 +139,7 @@ router.put('/:id', authenticateToken, validate(quoteValidation.update), async (r
             'stone_categories', 'stone_markup',
             'finishing_cost', 'plating_cost', 'finishing_markup',
             'findings', 'findings_markup',
-            'design_variations', 'subtotal', 'total', 'status' // status can be: draft, pending_approval, approved, completed
+            'design_variations', 'cad_markup_image', 'subtotal', 'total', 'status' // status can be: draft, pending_approval, approved, completed
         ];
 
         for (const field of allowedFields) {

@@ -1,13 +1,16 @@
 const PDFDocument = require('pdfkit');
 const { calculateQuote } = require('./calculationService');
+const PricingService = require('./pricingService');
 const fs = require('fs');
 const path = require('path');
 
 class PDFService {
-    static generateQuotePDF(quote, client, type = 'client') {
-        return new Promise((resolve, reject) => {
+    static async generateQuotePDF(quote, client, type = 'client') {
+        return new Promise(async (resolve, reject) => {
             try {
-                const calculations = calculateQuote(quote);
+                // Fetch system rates for calculation
+                const systemRates = await PricingService.getSystemRates();
+                const calculations = calculateQuote(quote, systemRates);
                 const { sections, totals } = calculations;
 
                 const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -199,6 +202,25 @@ class PDFService {
                         y = drawRow('Total Price', formatCurrency(sections.cad.price), y, true);
                     }
                     y += 10;
+
+                    // Add CAD Markup Image if present
+                    if (quote.cad_markup_image) {
+                        try {
+                            y = checkPageBreak(y, 200);
+                            doc.fontSize(9).font('Helvetica-Bold').fillColor(COLORS.secondary).text('Design Markup:', 50, y);
+                            y += 15;
+
+                            // Convert base64 to buffer and add to PDF
+                            const base64Data = quote.cad_markup_image.replace(/^data:image\/\w+;base64,/, '');
+                            const imageBuffer = Buffer.from(base64Data, 'base64');
+
+                            // Add image with max width constraint
+                            doc.image(imageBuffer, 50, y, { fit: [495, 300], align: 'center' });
+                            y += 310; // Height of image + padding
+                        } catch (error) {
+                            console.error('Failed to add markup image to PDF:', error);
+                        }
+                    }
                 }
 
                 // 4. Manufacturing
