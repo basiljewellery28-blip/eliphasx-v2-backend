@@ -6,8 +6,8 @@ const calculateQuote = (quote, systemRates = null) => {
     const metalWeight = num(quote.metal_weight);
     let metalSpotPrice = num(quote.metal_spot_price);
 
-    // Override with system rate if available
-    if (systemRates && systemRates.metalPrices && quote.metal_type) {
+    // Override with system rate ONLY if spot price is not provided (e.g. initial calc)
+    if ((!metalSpotPrice || metalSpotPrice === 0) && systemRates && systemRates.metalPrices && quote.metal_type) {
         if (systemRates.metalPrices[quote.metal_type]) {
             metalSpotPrice = parseFloat(systemRates.metalPrices[quote.metal_type]);
         }
@@ -22,8 +22,8 @@ const calculateQuote = (quote, systemRates = null) => {
     // 2. CAD Calculations
     const cadHours = num(quote.cad_hours);
     const cadBaseRate = num(quote.cad_base_rate);
-    const cadRendering = num(quote.cad_rendering_cost);
-    const cadTechnical = num(quote.cad_technical_cost);
+    const cadRendering = quote.include_rendering_cost !== false ? num(quote.cad_rendering_cost) : 0;
+    const cadTechnical = quote.include_technical_cost !== false ? num(quote.cad_technical_cost) : 0;
     const cadMarkup = num(quote.cad_markup);
 
     const cadCost = (cadHours * cadBaseRate) + cadRendering + cadTechnical;
@@ -46,8 +46,8 @@ const calculateQuote = (quote, systemRates = null) => {
         const costPerStone = num(stone.cost_per_stone);
         let settingCost = num(stone.setting_cost);
 
-        // Override with system rate if available
-        if (systemRates && systemRates.stonePrices && stone.type && stone.setting_style && stone.size_category) {
+        // Override with system rate ONLY if setting cost is not provided
+        if ((!settingCost || settingCost === 0) && systemRates && systemRates.stonePrices && stone.type && stone.setting_style && stone.size_category) {
             const match = systemRates.stonePrices.find(p =>
                 p.stone_type === stone.type &&
                 p.setting_style === stone.setting_style &&
@@ -65,7 +65,7 @@ const calculateQuote = (quote, systemRates = null) => {
 
     // 5. Finishing Calculations
     const finishCost = num(quote.finishing_cost);
-    const platingCost = num(quote.plating_cost);
+    const platingCost = quote.include_plating_cost !== false ? num(quote.plating_cost) : 0;
     const finishMarkup = num(quote.finishing_markup);
 
     const finishingCost = finishCost + platingCost;

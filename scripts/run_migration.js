@@ -1,28 +1,23 @@
 const db = require('../config/database');
+const fs = require('fs');
+const path = require('path');
 
-async function runMigration() {
-    console.log('Starting migration...');
+async function runMigrations() {
+    console.log('Starting migrations...');
     try {
-        // Check if column exists
-        const checkQuery = `
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name='quotes' AND column_name='cad_markup_image';
-        `;
-        const checkResult = await db.query(checkQuery);
+        const migrationsPath = path.join(__dirname, '../migrations');
+        const files = fs.readdirSync(migrationsPath).filter(f => f.endsWith('.sql'));
 
-        if (checkResult.rows.length === 0) {
-            console.log('Adding cad_markup_image column...');
-            await db.query(`
-                ALTER TABLE quotes ADD COLUMN cad_markup_image TEXT;
-                COMMENT ON COLUMN quotes.cad_markup_image IS 'Base64-encoded PNG image data containing CAD markup annotations';
-            `);
-            console.log('Column added successfully.');
-        } else {
-            console.log('Column cad_markup_image already exists.');
+        console.log(`Found ${files.length} migration file(s)`);
+
+        for (const file of files) {
+            console.log(`Running migration: ${file}`);
+            const sql = fs.readFileSync(path.join(migrationsPath, file), 'utf8');
+            await db.query(sql);
+            console.log(`✓ Completed: ${file}`);
         }
 
-        console.log('Migration completed successfully.');
+        console.log('All migrations completed successfully.');
         process.exit(0);
     } catch (error) {
         console.error('Migration failed:', error);
@@ -30,4 +25,4 @@ async function runMigration() {
     }
 }
 
-runMigration();
+runMigrations();

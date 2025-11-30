@@ -78,6 +78,7 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
             metal_wastage, metal_markup, design_variations, cad_markup_image
         } = req.body;
 
+
         // Generate quote number
         const quoteNumber = `Q-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
@@ -85,18 +86,53 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
       INSERT INTO quotes (
         quote_number, client_id, user_id, piece_category, brief_id,
         metal_type, metal_weight, metal_spot_price, metal_wastage, metal_markup,
+        cad_hours, cad_base_rate, cad_revisions, cad_rendering_cost, cad_technical_cost, cad_markup,
+        include_rendering_cost, include_technical_cost,
+        manufacturing_technique, manufacturing_hours, manufacturing_base_rate, manufacturing_markup,
+        stone_categories, stone_markup,
+        finishing_cost, plating_cost, include_plating_cost, finishing_markup,
+        findings, findings_markup,
         design_variations, cad_markup_image, subtotal, total, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
       RETURNING *
     `;
 
         const values = [
-            quoteNumber, client_id, req.user.id, piece_category, brief_id,
-            metal_type, metal_weight, usedSpotPrice, metal_wastage, metal_markup,
-            JSON.stringify(design_variations || []),
-            cad_markup_image || null,
-            subtotalCost, totalPrice,
-            'draft' // status
+            quoteNumber,
+            req.body.client_id,
+            req.user.id,
+            req.body.piece_category,
+            req.body.brief_id,
+            req.body.metal_type,
+            req.body.metal_weight,
+            usedSpotPrice,
+            req.body.metal_wastage,
+            req.body.metal_markup,
+            req.body.cad_hours || 0,
+            req.body.cad_base_rate || 0,
+            req.body.cad_revisions || 0,
+            req.body.cad_rendering_cost || 0,
+            req.body.cad_technical_cost || 0,
+            req.body.cad_markup || 0,
+            req.body.include_rendering_cost !== undefined ? req.body.include_rendering_cost : false,
+            req.body.include_technical_cost !== undefined ? req.body.include_technical_cost : false,
+            req.body.manufacturing_technique,
+            req.body.manufacturing_hours || 0,
+            req.body.manufacturing_base_rate || 0,
+            req.body.manufacturing_markup || 0,
+            JSON.stringify(req.body.stone_categories || []),
+            req.body.stone_markup || 0,
+            req.body.finishing_cost || 0,
+            req.body.plating_cost || 0,
+            req.body.include_plating_cost !== undefined ? req.body.include_plating_cost : false,
+            req.body.finishing_markup || 0,
+            JSON.stringify(req.body.findings || []),
+            req.body.findings_markup || 0,
+            JSON.stringify(req.body.design_variations || []),
+            req.body.cad_markup_image || null,
+            subtotalCost,
+            totalPrice,
+            req.body.status || 'draft'
         ];
 
         const result = await db.query(query, values);
@@ -133,11 +169,14 @@ router.put('/:id', authenticateToken, validate(quoteValidation.update), async (r
         let idx = 1;
 
         const allowedFields = [
+            'piece_category', 'brief_id',
             'metal_type', 'metal_weight', 'metal_spot_price', 'metal_wastage', 'metal_markup',
             'cad_hours', 'cad_base_rate', 'cad_revisions', 'cad_markup',
+            'include_rendering_cost', 'cad_rendering_cost',
+            'include_technical_cost', 'cad_technical_cost',
             'manufacturing_technique', 'manufacturing_hours', 'manufacturing_base_rate', 'manufacturing_markup',
             'stone_categories', 'stone_markup',
-            'finishing_cost', 'plating_cost', 'finishing_markup',
+            'finishing_cost', 'include_plating_cost', 'plating_cost', 'finishing_markup',
             'findings', 'findings_markup',
             'design_variations', 'cad_markup_image', 'subtotal', 'total', 'status' // status can be: draft, pending_approval, approved, completed
         ];

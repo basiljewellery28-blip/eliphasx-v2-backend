@@ -124,23 +124,86 @@ class PDFService {
                 y += 15;
                 doc.text(`Valid Until: ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}`, 350, y);
 
-                y = Math.max(y, infoTop + 80) + 20;
+                // Add Piece Description if present
+                if (quote.piece_category || quote.brief_id) {
+                    y += 20;
+                    doc.font('Helvetica-Bold').text('PIECE DETAILS:', 350, y);
+                    y += 15;
+                    if (quote.piece_category) {
+                        doc.font('Helvetica').text(`Category: ${quote.piece_category}`, 350, y);
+                        y += 15;
+                    }
+                    if (quote.brief_id) {
+                        doc.font('Helvetica').text(`Brief ID: ${quote.brief_id}`, 350, y);
+                        y += 15;
+                    }
+                }
 
-                // 1. Metal
-                if (quote.metal_type) {
+                y = Math.max(y, infoTop + 120) + 20;
+
+                // 1. Metal & Collection Mode
+                let designVariations = quote.design_variations;
+                if (typeof designVariations === 'string') {
+                    try {
+                        designVariations = JSON.parse(designVariations);
+                    } catch (e) {
+                        designVariations = [];
+                    }
+                }
+
+                if ((designVariations && designVariations.length > 0) || quote.metal_type) {
                     y = drawSectionHeader('Metal Specification', y);
 
-                    if (type === 'admin') {
-                        // 2-Column Layout for Admin
-                        y = drawAdminRow('Metal Type', quote.metal_type.replace(/_/g, ' '), 'Spot Price', formatCurrency(quote.metal_spot_price), y);
-                        y = drawAdminRow('Weight', `${quote.metal_weight}g`, 'Wastage', `${quote.metal_wastage}%`, y);
-                        y = drawAdminRow('Markup', `${quote.metal_markup}%`, '', '', y);
+                    // Check for Collection Mode (Design Variations)
+                    if (designVariations && designVariations.length > 0) {
+                        // Collection Mode Table Header
+                        y = checkPageBreak(y, 30);
+                        doc.fontSize(9).font('Helvetica-Bold').fillColor(COLORS.secondary);
+                        doc.text('VARIATION', 60, y);
+                        doc.text('METAL', 200, y);
+                        doc.text('WEIGHT', 300, y);
+                        if (type === 'admin') {
+                            doc.text('WASTAGE', 380, y);
+                            doc.text('MARKUP', 460, y);
+                        }
+                        y += 15;
+                        drawLine(y);
+                        y += 8;
+
+                        doc.font('Helvetica').fillColor(COLORS.primary);
+                        designVariations.forEach(variation => {
+                            if (!variation.enabled) return; // Skip disabled variations
+
+                            y = checkPageBreak(y, 20);
+                            doc.text(variation.name || 'Variation', 60, y);
+                            doc.text(variation.metal_type ? variation.metal_type.replace(/_/g, ' ') : '-', 200, y);
+                            doc.text(`${variation.metal_weight || 0}g`, 300, y);
+
+                            if (type === 'admin') {
+                                doc.text(`${variation.metal_wastage || 0}%`, 380, y);
+                                doc.text(`${variation.metal_markup || 0}%`, 460, y);
+                            }
+                            y += 14;
+                        });
                         y += 5;
-                        y = drawRow('Total Metal Price', formatCurrency(sections.metal.price), y, true);
-                    } else {
-                        y = drawRow('Metal Type', quote.metal_type.replace(/_/g, ' '), y);
-                        y = drawRow('Weight', `${quote.metal_weight}g`, y);
-                        y = drawRow('Total Price', formatCurrency(sections.metal.price), y, true);
+
+                        // Show total for collection mode
+                        y = drawRow('Collection Total (Metal)', formatCurrency(sections.metal.price), y, true);
+
+                    } else if (quote.metal_type) {
+                        // Standard Single Metal Mode
+                        if (type === 'admin') {
+                            // 2-Column Layout for Admin
+                            y = drawAdminRow('Metal Type', quote.metal_type.replace(/_/g, ' '), 'Spot Price', formatCurrency(quote.metal_spot_price), y);
+                            y = drawAdminRow('Weight', `${quote.metal_weight}g`, 'Wastage', `${quote.metal_wastage}%`, y);
+                            y = drawAdminRow('Markup', `${quote.metal_markup}%`, '', '', y);
+                            y += 5;
+                            y = drawRow('Total Metal Price', formatCurrency(sections.metal.price), y, true);
+                        } else {
+                            y = drawRow('Metal Type', quote.metal_type.replace(/_/g, ' '), y);
+                            y = drawRow('Weight', `${quote.metal_weight}g`, y);
+                            y = drawRow('Total Price', formatCurrency(sections.metal.price), y, true);
+                        }
                     }
                     y += 10;
                 }
