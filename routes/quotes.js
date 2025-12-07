@@ -3,34 +3,43 @@ const router = express.Router();
 const db = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { validate, quoteValidation } = require('../middleware/validation');
-const PricingService = require('../services/pricingService'); // Import PricingService
+const { loadOrganization, requireActiveSubscription, checkQuoteLimit } = require('../middleware/tenant');
+const PricingService = require('../services/pricingService');
 
-// GET all quotes for user
-router.get('/', authenticateToken, async (req, res) => {
+// Apply tenant middleware to all routes
+router.use(authenticateToken, loadOrganization);
+
+// GET all quotes for organization
+router.get('/', async (req, res) => {
     try {
-        let query = `
-      SELECT q.*, c.name as client_name, c.profile_number 
-      FROM quotes q 
-      LEFT JOIN clients c ON q.client_id = c.id 
-      WHERE q.user_id = $1 
-      ORDER BY q.created_at DESC
-    `;
+        const orgId = req.organization.id;
 
-        // Admin can see all quotes
-        if (req.user.role === 'admin') {
+        let query = `
+          SELECT q.*, c.name as client_name, c.profile_number, u.email as user_email
+          FROM quotes q 
+          LEFT JOIN clients c ON q.client_id = c.id 
+          LEFT JOIN users u ON q.user_id = u.id
+          WHERE q.organization_id = $1
+          ORDER BY q.created_at DESC
+        `;
+
+        // Non-admin only sees their own quotes
+        if (req.user.role !== 'admin') {
             query = `
-        SELECT q.*, c.name as client_name, c.profile_number, u.email as user_email
-        FROM quotes q 
-        LEFT JOIN clients c ON q.client_id = c.id 
-        LEFT JOIN users u ON q.user_id = u.id
-        ORDER BY q.created_at DESC
-      `;
+              SELECT q.*, c.name as client_name, c.profile_number 
+              FROM quotes q 
+              LEFT JOIN clients c ON q.client_id = c.id 
+              WHERE q.organization_id = $1 AND q.user_id = $2
+              ORDER BY q.created_at DESC
+            `;
+            const result = await db.query(query, [orgId, req.user.id]);
+            return res.json({ quotes: result.rows });
         }
 
-        const result = await db.query(query, req.user.role === 'admin' ? [] : [req.user.id]);
+        const result = await db.query(query, [orgId]);
         res.json({ quotes: result.rows });
     } catch (error) {
-        console.error(error);
+        console.error('Fetch quotes error:', error.message);
         res.status(500).json({ error: 'Failed to fetch quotes' });
     }
 });
@@ -84,7 +93,7 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
 
         const query = `
       INSERT INTO quotes (
-        quote_number, client_id, user_id, piece_category, brief_id,
+        quote_number, client_id, user_id, organization_id, piece_category, brief_id,
         metal_type, metal_weight, metal_spot_price, metal_wastage, metal_markup,
         cad_hours, cad_base_rate, cad_revisions, cad_rendering_cost, cad_technical_cost, cad_markup,
         include_rendering_cost, include_technical_cost,
@@ -93,7 +102,7 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
         finishing_cost, plating_cost, include_plating_cost, finishing_markup,
         findings, findings_markup,
         design_variations, cad_markup_image, subtotal, total, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
       RETURNING *
     `;
 
@@ -101,6 +110,7 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
             quoteNumber,
             req.body.client_id,
             req.user.id,
+            req.organization.id,  // organization_id
             req.body.piece_category,
             req.body.brief_id,
             req.body.metal_type,
@@ -222,7 +232,7 @@ router.put('/:id', authenticateToken, validate(quoteValidation.update), async (r
 });
 
 // PDF Generation
-router.get('/:id/pdf', authenticateToken, async (req, res) => {
+router.get('/:id/pdf', authenticateToken, loadOrganization, async (req, res) => {
     try {
         const { type } = req.query; // 'client' or 'admin'
 
@@ -234,8 +244,11 @@ router.get('/:id/pdf', authenticateToken, async (req, res) => {
         const clientResult = await db.query('SELECT * FROM clients WHERE id = $1', [quote.client_id]);
         const client = clientResult.rows[0] || {};
 
+        // Get organization branding
+        const branding = req.organization?.settings?.branding || {};
+
         const PDFService = require('../services/pdfService');
-        const pdfBuffer = await PDFService.generateQuotePDF(quote, client, type);
+        const pdfBuffer = await PDFService.generateQuotePDF(quote, client, type, branding);
 
         res.set({
             'Content-Type': 'application/pdf',

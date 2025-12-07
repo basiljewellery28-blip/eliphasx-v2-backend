@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 class PDFService {
-    static async generateQuotePDF(quote, client, type = 'client') {
+    static async generateQuotePDF(quote, client, type = 'client', branding = {}) {
         return new Promise(async (resolve, reject) => {
             try {
                 // Fetch system rates for calculation
@@ -80,20 +80,47 @@ class PDFService {
 
                 let y = 50;
 
-                // Logo (Restored to decent size)
-                const logoPath = path.join(__dirname, '../assets/logo.png');
-                const logoJpgPath = path.join(__dirname, '../assets/logo.jpg');
+                // Logo - Check for organization branding first, then default
+                let logoRendered = false;
 
-                if (fs.existsSync(logoPath)) {
-                    doc.image(logoPath, 222, y, { width: 150 });
-                    y += 80;
-                } else if (fs.existsSync(logoJpgPath)) {
-                    doc.image(logoJpgPath, 222, y, { width: 150 });
-                    y += 80;
-                } else {
-                    doc.fontSize(20).font('Helvetica-Bold').fillColor(COLORS.primary).text('RARE EARTH CREATIONS', 50, y, { align: 'center' });
+                // Try organization logo first
+                if (branding.logoUrl) {
+                    const orgLogoPath = path.join(__dirname, '..', branding.logoUrl);
+                    if (fs.existsSync(orgLogoPath)) {
+                        try {
+                            doc.image(orgLogoPath, 222, y, { width: 150 });
+                            y += 80;
+                            logoRendered = true;
+                        } catch (err) {
+                            console.error('Failed to load org logo:', err.message);
+                        }
+                    }
+                }
+
+                // Fallback to default logo
+                if (!logoRendered) {
+                    const logoPath = path.join(__dirname, '../assets/logo.png');
+                    const logoJpgPath = path.join(__dirname, '../assets/logo.jpg');
+
+                    if (fs.existsSync(logoPath)) {
+                        doc.image(logoPath, 222, y, { width: 150 });
+                        y += 80;
+                        logoRendered = true;
+                    } else if (fs.existsSync(logoJpgPath)) {
+                        doc.image(logoJpgPath, 222, y, { width: 150 });
+                        y += 80;
+                        logoRendered = true;
+                    }
+                }
+
+                // Fallback to text header if no logo
+                if (!logoRendered) {
+                    const headerText = branding.headerText || 'RARE EARTH CREATIONS';
+                    const tagline = branding.tagline || 'EXQUISITE JEWELRY MANUFACTURING';
+
+                    doc.fontSize(20).font('Helvetica-Bold').fillColor(COLORS.primary).text(headerText, 50, y, { align: 'center' });
                     y += 25;
-                    doc.fontSize(9).font('Helvetica').fillColor(COLORS.secondary).text('EXQUISITE JEWELRY MANUFACTURING', 50, y, { align: 'center', letterSpacing: 2 });
+                    doc.fontSize(9).font('Helvetica').fillColor(COLORS.secondary).text(tagline, 50, y, { align: 'center', letterSpacing: 2 });
                     y += 35;
                 }
 
@@ -338,9 +365,12 @@ class PDFService {
                 doc.text('TOTAL ESTIMATE', 320, y + 2);
                 doc.text(formatCurrency(totals.totalPrice), 320, y + 2, { align: 'right', width: 210 });
 
-                // Footer
-                doc.fontSize(8).fillColor(COLORS.secondary).text('This quote is valid for 7 days from the date of issue.', 50, 750, { align: 'center' });
-                doc.text('Thank you for your business.', 50, 765, { align: 'center' });
+                // Footer - Use custom branding or defaults
+                const footerValidityText = branding.footerValidityText || 'This quote is valid for 7 days from the date of issue.';
+                const footerText = branding.footerText || 'Thank you for your business.';
+
+                doc.fontSize(8).fillColor(COLORS.secondary).text(footerValidityText, 50, 750, { align: 'center' });
+                doc.text(footerText, 50, 765, { align: 'center' });
 
                 doc.end();
             } catch (error) {

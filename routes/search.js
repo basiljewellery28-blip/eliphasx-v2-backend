@@ -30,7 +30,7 @@ router.get('/', authenticateToken, async (req, res) => {
         // Previous logic: GET /clients returns all for Admin, or created_by for Sales.
         // Let's stick to that for consistency.
         const clientValues = [searchTerm];
-        if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+        if (req.user.role !== 'admin') {
             clientQuery += ` AND created_by = $2`;
             clientValues.push(req.user.id);
         }
@@ -49,7 +49,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
         // RBAC for Quotes
         const quoteValues = [searchTerm];
-        if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+        if (req.user.role !== 'admin') {
             quoteQuery += ` AND q.user_id = $2`;
             quoteValues.push(req.user.id);
         }
