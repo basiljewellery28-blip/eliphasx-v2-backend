@@ -5,6 +5,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { validate, quoteValidation } = require('../middleware/validation');
 const { loadOrganization, requireActiveSubscription, checkQuoteLimit } = require('../middleware/tenant');
 const PricingService = require('../services/pricingService');
+const { logAudit, AuditAction } = require('../services/auditService');
 
 // Apply tenant middleware to all routes
 router.use(authenticateToken, loadOrganization);
@@ -146,6 +147,16 @@ router.post('/', authenticateToken, validate(quoteValidation.create), async (req
         ];
 
         const result = await db.query(query, values);
+
+        // Log quote creation
+        logAudit({
+            userId: req.user.id,
+            organizationId: req.organization.id,
+            action: AuditAction.CREATE_QUOTE,
+            details: { quoteId: result.rows[0].id, quoteNumber: result.rows[0].quote_number, total: totalPrice },
+            req
+        });
+
         res.status(201).json({ quote: result.rows[0], calculations: calculated });
     } catch (error) {
         console.error('Quote Creation Error:', error);
@@ -223,6 +234,15 @@ router.put('/:id', authenticateToken, validate(quoteValidation.update), async (r
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Quote not found or access denied' });
         }
+
+        // Log quote update
+        logAudit({
+            userId: req.user.id,
+            organizationId: req.organization?.id,
+            action: AuditAction.UPDATE_QUOTE,
+            details: { quoteId: result.rows[0].id, status: result.rows[0].status },
+            req
+        });
 
         res.json({ quote: result.rows[0], calculations: calculated });
     } catch (error) {

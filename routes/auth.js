@@ -6,6 +6,7 @@ const db = require('../config/database');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const xss = require('xss');
+const { logAudit, AuditAction } = require('../services/auditService');
 
 // Rate Limiter for Auth Endpoints
 const authLimiter = rateLimit({
@@ -76,6 +77,8 @@ router.post('/login', authLimiter, async (req, res) => {
                 );
             }
 
+            // Log failed login attempt
+            logAudit({ userId: user.id, organizationId: user.organization_id, action: AuditAction.LOGIN_FAILED, details: { reason: 'invalid_password' }, req });
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
@@ -98,6 +101,9 @@ router.post('/login', authLimiter, async (req, res) => {
         delete user.locked_until;
         delete user.reset_password_token;
         delete user.reset_password_expires;
+
+        // Log successful login
+        logAudit({ userId: user.id, organizationId: user.organization_id, action: AuditAction.LOGIN, details: { email: user.email }, req });
 
         res.json({ user, token });
     } catch (error) {

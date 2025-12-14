@@ -1,12 +1,14 @@
 const nodemailer = require('nodemailer');
 
 // Configure transporter
-// In production, use environment variables for these values
+// In production, use environment variables for these values. Defaulting to Zoho SMTP settings.
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // Or your preferred service
+    host: process.env.SMTP_HOST || 'smtppro.zoho.com',
+    port: process.env.SMTP_PORT || 465,
+    secure: true, // true for 465, false for other ports
     auth: {
-        user: process.env.EMAIL_USER || 'notifications@eliphasx.com', // Placeholder
-        pass: process.env.EMAIL_PASS || 'your-password' // Placeholder
+        user: process.env.SMTP_USER || process.env.EMAIL_USER,
+        pass: process.env.SMTP_PASS || process.env.EMAIL_PASS
     }
 });
 
@@ -14,7 +16,7 @@ class EmailService {
     static async sendNewClientNotification(client, creatorEmail) {
         try {
             // If no email config is present, just log it (for dev/demo purposes)
-            if (!process.env.EMAIL_USER) {
+            if (!process.env.SMTP_USER && !process.env.EMAIL_USER) {
                 console.log('---------------------------------------------------');
                 console.log('📧 [MOCK EMAIL] New Client Notification');
                 console.log(`To: Admin`);
@@ -27,7 +29,7 @@ class EmailService {
             }
 
             const mailOptions = {
-                from: process.env.EMAIL_USER,
+                from: process.env.SMTP_USER || process.env.EMAIL_USER,
                 to: process.env.ADMIN_EMAIL || 'admin@eliphasx.com',
                 subject: `New Client Registered: ${client.name}`,
                 html: `

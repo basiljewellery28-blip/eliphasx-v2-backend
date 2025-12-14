@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { logAudit, AuditAction } = require('../services/auditService');
 
 // GET metal prices (Public to authenticated users)
 router.get('/metal-prices', authenticateToken, async (req, res) => {
@@ -31,6 +32,16 @@ router.put('/metal-prices', authenticateToken, requireAdmin, async (req, res) =>
             }
 
             await client.query('COMMIT');
+
+            // Log the admin action
+            logAudit({
+                userId: req.user.id,
+                organizationId: null, // System-level action
+                action: AuditAction.UPDATE_METAL_PRICES,
+                details: { pricesUpdated: prices.length },
+                req
+            });
+
             res.json({ message: 'Prices updated successfully' });
         } catch (e) {
             await client.query('ROLLBACK');

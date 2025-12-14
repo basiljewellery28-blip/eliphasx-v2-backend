@@ -35,6 +35,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/billing', require('./routes/billing'));
 app.use('/api/organizations', require('./routes/organizations'));
+app.use('/api/sysadmin', require('./routes/sysadmin')); // 🛡️ Super Admin Routes
 
 // Health check
 app.get('/api/health', (req, res) => {

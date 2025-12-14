@@ -1,6 +1,13 @@
 const jwt = require('jsonwebtoken');
 const db = require('../config/database');
 
+// 🛡️ SUPER ADMIN WHITELIST - Maximum Security Layer
+// Only these emails can access system-level admin functions
+const SUPER_ADMIN_EMAILS = [
+    'ntobekom@basilx.co.za',
+    'eliphasxsupport@basilx.co.za'
+];
+
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -29,9 +36,14 @@ const authenticateToken = async (req, res, next) => {
     }
 };
 
+// Super Admin access - requires BOTH role='admin' AND whitelisted email
 const requireAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'Admin access required' });
+    const userEmail = req.user.email?.toLowerCase();
+    const isWhitelisted = SUPER_ADMIN_EMAILS.some(e => e.toLowerCase() === userEmail);
+
+    if (req.user.role !== 'admin' || !isWhitelisted) {
+        console.warn(`🚫 Blocked admin access attempt: ${req.user.email} (Role: ${req.user.role})`);
+        return res.status(403).json({ error: 'Super Admin access required' });
     }
     next();
 };
@@ -44,4 +56,10 @@ const requireOrgOwner = (req, res, next) => {
     next();
 };
 
-module.exports = { authenticateToken, requireAdmin, requireOrgOwner };
+// Helper to check if user is super admin (for frontend checks)
+const isSuperAdmin = (email) => {
+    return SUPER_ADMIN_EMAILS.some(e => e.toLowerCase() === email?.toLowerCase());
+};
+
+module.exports = { authenticateToken, requireAdmin, requireOrgOwner, isSuperAdmin, SUPER_ADMIN_EMAILS };
+
