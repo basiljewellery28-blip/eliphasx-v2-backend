@@ -181,4 +181,55 @@ router.get('/health', authenticateToken, requireAdmin, async (req, res) => {
     }
 });
 
+// ======= BACKUP MANAGEMENT =======
+const backupService = require('../services/backupService');
+
+// GET /api/sysadmin/backups - List recent backups
+router.get('/backups', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        if (!backupService.isS3Configured()) {
+            return res.status(503).json({
+                error: 'S3 not configured',
+                message: 'AWS S3 credentials are not set in environment variables'
+            });
+        }
+
+        const backups = await backupService.listBackups();
+        res.json({ backups });
+    } catch (error) {
+        console.error('List backups error:', error);
+        res.status(500).json({ error: 'Failed to list backups', details: error.message });
+    }
+});
+
+// POST /api/sysadmin/backups - Create a new backup
+router.post('/backups', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        if (!backupService.isS3Configured()) {
+            return res.status(503).json({
+                error: 'S3 not configured',
+                message: 'AWS S3 credentials are not set in environment variables'
+            });
+        }
+
+        const result = await backupService.createDatabaseBackup();
+        res.json({
+            message: 'Backup created successfully',
+            backup: result
+        });
+    } catch (error) {
+        console.error('Create backup error:', error);
+        res.status(500).json({ error: 'Failed to create backup', details: error.message });
+    }
+});
+
+// GET /api/sysadmin/backups/status - Check if S3 is configured
+router.get('/backups/status', authenticateToken, requireAdmin, (req, res) => {
+    res.json({
+        configured: backupService.isS3Configured(),
+        region: process.env.AWS_REGION || 'not set',
+        bucket: process.env.AWS_S3_BUCKET || 'not set'
+    });
+});
+
 module.exports = router;
