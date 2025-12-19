@@ -140,8 +140,15 @@ router.get('/users', authenticateToken, loadOrganization, async (req, res) => {
  */
 router.post('/invite', authenticateToken, loadOrganization, requireOrgOwner, async (req, res) => {
     try {
-        const { email, role } = req.body;
+        const { email } = req.body;
         const org = req.organization;
+        const inviter = req.user;
+
+        // Validate email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!email || !emailRegex.test(email)) {
+            return res.status(400).json({ error: 'Please provide a valid email address' });
+        }
 
         // Check user limit
         const userCount = await db.query(
@@ -162,25 +169,63 @@ router.post('/invite', authenticateToken, loadOrganization, requireOrgOwner, asy
         // Check if user already exists
         const existing = await db.query('SELECT * FROM users WHERE email = $1', [xss(email)]);
         if (existing.rows.length > 0) {
-            return res.status(400).json({ error: 'User with this email already exists' });
+            return res.status(400).json({ error: 'A user with this email already exists' });
         }
 
-        // In production: Send invitation email with signup link
-        // For now: Return invitation code/link
-        const inviteCode = require('crypto').randomBytes(16).toString('hex');
+        // Check if there's already a pending invitation
+        const existingInvite = await db.query(
+            'SELECT * FROM invitations WHERE email = $1 AND organization_id = $2 AND accepted_at IS NULL AND expires_at > NOW()',
+            [xss(email), org.id]
+        );
+        if (existingInvite.rows.length > 0) {
+            return res.status(400).json({ error: 'An invitation has already been sent to this email' });
+        }
+
+        // Generate invite token and expiry (1 day)
+        const inviteToken = require('crypto').randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 1 day
+
+        // Store invitation in database
+        await db.query(
+            `INSERT INTO invitations (organization_id, email, role, invite_token, invited_by, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [org.id, xss(email), 'sales', inviteToken, inviter.id, expiresAt]
+        );
+
+        const inviteUrl = `${process.env.FRONTEND_URL}/accept-invite/${inviteToken}`;
+
+        // Get inviter's name
+        const inviterResult = await db.query(
+            'SELECT first_name, last_name, email FROM users WHERE id = $1',
+            [inviter.id]
+        );
+        const inviterData = inviterResult.rows[0];
+        const inviterName = inviterData.first_name && inviterData.last_name
+            ? `${inviterData.first_name} ${inviterData.last_name}`
+            : inviterData.email;
+
+        // Send invitation email
+        const EmailService = require('../services/emailService');
+        await EmailService.sendTeamInvite({
+            email: xss(email),
+            inviterName: inviterName,
+            inviterEmail: inviterData.email,
+            organizationName: org.name,
+            inviteUrl: inviteUrl,
+            expiresAt: expiresAt.toISOString()
+        });
 
         res.json({
-            message: 'Invitation created',
+            message: 'Invitation sent successfully',
             invitation: {
                 email: xss(email),
-                role: role || 'sales',
-                inviteCode: inviteCode,
-                signupUrl: `${process.env.FRONTEND_URL}/register?invite=${inviteCode}&org=${org.slug}`
+                role: 'sales',
+                expiresAt: expiresAt.toISOString()
             }
         });
     } catch (error) {
         console.error('Invite user error:', error.message);
-        res.status(500).json({ error: 'Failed to create invitation' });
+        res.status(500).json({ error: 'Failed to send invitation' });
     }
 });
 

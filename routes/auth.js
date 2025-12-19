@@ -294,4 +294,167 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     }
 });
 
+/**
+ * GET /accept-invite/:token
+ * Validate invitation token and return invitation details
+ */
+router.get('/accept-invite/:token', async (req, res) => {
+    try {
+        const { token } = req.params;
+
+        // Find valid invitation
+        const result = await db.query(
+            `SELECT i.*, o.name as organization_name, o.id as organization_id,
+                    u.first_name as inviter_first_name, u.last_name as inviter_last_name, u.email as inviter_email
+             FROM invitations i
+             JOIN organizations o ON i.organization_id = o.id
+             LEFT JOIN users u ON i.invited_by = u.id
+             WHERE i.invite_token = $1`,
+            [token]
+        );
+
+        const invitation = result.rows[0];
+
+        if (!invitation) {
+            return res.status(404).json({ error: 'Invalid invitation link' });
+        }
+
+        if (invitation.accepted_at) {
+            return res.status(400).json({ error: 'This invitation has already been used' });
+        }
+
+        if (new Date(invitation.expires_at) < new Date()) {
+            return res.status(400).json({ error: 'This invitation has expired' });
+        }
+
+        // Check if user already exists
+        const existingUser = await db.query('SELECT * FROM users WHERE email = $1', [invitation.email]);
+        if (existingUser.rows.length > 0) {
+            return res.status(400).json({ error: 'An account with this email already exists. Please login instead.' });
+        }
+
+        const inviterName = invitation.inviter_first_name && invitation.inviter_last_name
+            ? `${invitation.inviter_first_name} ${invitation.inviter_last_name}`
+            : invitation.inviter_email;
+
+        res.json({
+            invitation: {
+                email: invitation.email,
+                role: invitation.role,
+                organizationName: invitation.organization_name,
+                inviterName: inviterName,
+                expiresAt: invitation.expires_at
+            }
+        });
+    } catch (error) {
+        console.error('Accept invite error:', error);
+        res.status(500).json({ error: 'Failed to validate invitation' });
+    }
+});
+
+/**
+ * POST /register-invite
+ * Register a new user from an invitation
+ */
+router.post('/register-invite', authLimiter, async (req, res) => {
+    try {
+        const {
+            token,
+            password,
+            firstName,
+            lastName,
+            phone,
+            jobTitle,
+            acceptedTerms,
+            acceptedPrivacy
+        } = req.body;
+
+        // Validate invitation
+        const inviteResult = await db.query(
+            `SELECT i.*, o.id as organization_id, o.name as organization_name
+             FROM invitations i
+             JOIN organizations o ON i.organization_id = o.id
+             WHERE i.invite_token = $1`,
+            [token]
+        );
+
+        const invitation = inviteResult.rows[0];
+
+        if (!invitation) {
+            return res.status(404).json({ error: 'Invalid invitation' });
+        }
+
+        if (invitation.accepted_at) {
+            return res.status(400).json({ error: 'This invitation has already been used' });
+        }
+
+        if (new Date(invitation.expires_at) < new Date()) {
+            return res.status(400).json({ error: 'This invitation has expired' });
+        }
+
+        // Validate required fields
+        if (!firstName || !lastName) {
+            return res.status(400).json({ error: 'First name and last name are required' });
+        }
+
+        if (!acceptedTerms || !acceptedPrivacy) {
+            return res.status(400).json({ error: 'You must accept the Terms of Service and Privacy Policy' });
+        }
+
+        // Validate password
+        if (!isPasswordStrong(password)) {
+            return res.status(400).json({
+                error: 'Password must be at least 8 characters with uppercase, lowercase, and a number.'
+            });
+        }
+
+        // Check if user exists
+        const existingUser = await db.query('SELECT * FROM users WHERE email = $1', [invitation.email]);
+        if (existingUser.rows.length > 0) {
+            return res.status(400).json({ error: 'An account with this email already exists' });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 12);
+
+        // Create user and link to organization
+        const userResult = await db.query(
+            `INSERT INTO users (
+                email, password_hash, role, organization_id, is_org_owner,
+                first_name, last_name, phone, job_title, accepted_terms_at, accepted_privacy_at
+            ) VALUES ($1, $2, $3, $4, false, $5, $6, $7, $8, $9, $10)
+             RETURNING id, email, role, organization_id, first_name, last_name`,
+            [
+                invitation.email,
+                hashedPassword,
+                invitation.role || 'sales',
+                invitation.organization_id,
+                xss(firstName),
+                xss(lastName),
+                xss(phone || ''),
+                xss(jobTitle || ''),
+                acceptedTerms ? new Date() : null,
+                acceptedPrivacy ? new Date() : null
+            ]
+        );
+
+        // Mark invitation as accepted
+        await db.query(
+            'UPDATE invitations SET accepted_at = NOW() WHERE id = $1',
+            [invitation.id]
+        );
+
+        res.status(201).json({
+            message: 'Account created successfully! You can now log in.',
+            user: userResult.rows[0],
+            organization: {
+                id: invitation.organization_id,
+                name: invitation.organization_name
+            }
+        });
+    } catch (error) {
+        console.error('Register invite error:', error);
+        res.status(500).json({ error: 'Failed to create account' });
+    }
+});
+
 module.exports = router;
