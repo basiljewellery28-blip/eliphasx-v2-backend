@@ -114,7 +114,30 @@ router.post('/login', authLimiter, async (req, res) => {
 
 router.post('/register', authLimiter, async (req, res) => {
     try {
-        const { email, password, organizationName } = req.body;
+        const {
+            email,
+            password,
+            // Personal info
+            firstName,
+            lastName,
+            phone,
+            jobTitle,
+            // Organization info
+            organizationName,
+            companySize,
+            industry,
+            province,
+            // Address (optional)
+            addressLine1,
+            addressLine2,
+            city,
+            postalCode,
+            registrationNumber,
+            vatNumber,
+            // Consent
+            acceptedTerms,
+            acceptedPrivacy
+        } = req.body;
 
         // Validate email format
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -144,21 +167,51 @@ router.post('/register', authLimiter, async (req, res) => {
         const companyName = organizationName || emailDomain.charAt(0).toUpperCase() + emailDomain.slice(1);
         const slug = generateSlug(companyName) + '-' + Date.now().toString(36);
 
-        // Create organization for new user (14-day trial)
+        // Create organization for new user (14-day trial) with full details
         const orgResult = await db.query(
-            `INSERT INTO organizations (name, slug, plan, subscription_status, trial_ends_at, settings)
-             VALUES ($1, $2, 'trial', 'trial', NOW() + INTERVAL '14 days', '{}')
+            `INSERT INTO organizations (
+                name, slug, plan, subscription_status, trial_ends_at, settings,
+                contact_email, phone, address_line1, address_line2, city, province,
+                postal_code, country, company_size, industry, registration_number, vat_number
+            ) VALUES ($1, $2, 'trial', 'trial', NOW() + INTERVAL '14 days', '{}',
+                $3, $4, $5, $6, $7, $8, $9, 'South Africa', $10, $11, $12, $13)
              RETURNING id`,
-            [xss(companyName), slug]
+            [
+                xss(companyName),
+                slug,
+                xss(email),
+                xss(phone || ''),
+                xss(addressLine1 || ''),
+                xss(addressLine2 || ''),
+                xss(city || ''),
+                xss(province || ''),
+                xss(postalCode || ''),
+                xss(companySize || ''),
+                xss(industry || 'jewellery_manufacturing'),
+                xss(registrationNumber || ''),
+                xss(vatNumber || '')
+            ]
         );
         const organizationId = orgResult.rows[0].id;
 
-        // Create user as org owner with admin role
+        // Create user as org owner with admin role and profile info
         const result = await db.query(
-            `INSERT INTO users (email, password_hash, role, organization_id, is_org_owner)
-             VALUES ($1, $2, 'admin', $3, true)
-             RETURNING id, email, role, organization_id, is_org_owner`,
-            [xss(email), hashedPassword, organizationId]
+            `INSERT INTO users (
+                email, password_hash, role, organization_id, is_org_owner,
+                first_name, last_name, phone, job_title, accepted_terms_at, accepted_privacy_at
+            ) VALUES ($1, $2, 'admin', $3, true, $4, $5, $6, $7, $8, $9)
+             RETURNING id, email, role, organization_id, is_org_owner, first_name, last_name`,
+            [
+                xss(email),
+                hashedPassword,
+                organizationId,
+                xss(firstName || ''),
+                xss(lastName || ''),
+                xss(phone || ''),
+                xss(jobTitle || ''),
+                acceptedTerms ? new Date() : null,
+                acceptedPrivacy ? new Date() : null
+            ]
         );
 
         res.status(201).json({
@@ -168,7 +221,7 @@ router.post('/register', authLimiter, async (req, res) => {
         });
     } catch (error) {
         console.error('Registration error:', error);
-        res.status(500).json({ error: 'Registration failed' });
+        res.status(500).json({ error: 'Registration failed. Please try again.' });
     }
 });
 

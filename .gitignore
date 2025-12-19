@@ -9,7 +9,9 @@ node_modules/
 
 # Database backups (may contain sensitive data)
 backups/
-*.sql
+backups/*.sql
+# Allow db/migrations SQL files
+!db/migrations/*.sql
 
 # Logs
 logs/
