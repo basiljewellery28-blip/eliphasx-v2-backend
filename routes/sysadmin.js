@@ -13,13 +13,44 @@ const { getAuditLogs } = require('../services/auditService');
 // GET /api/sysadmin/stats - System overview statistics
 router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        // Get counts from all key tables
-        const [orgsResult, usersResult, quotesResult, clientsResult] = await Promise.all([
-            db.query('SELECT COUNT(*) as count, status FROM organizations GROUP BY status'),
-            db.query('SELECT COUNT(*) as count FROM users'),
-            db.query('SELECT COUNT(*) as total, COUNT(CASE WHEN status = \'completed\' THEN 1 END) as completed FROM quotes'),
-            db.query('SELECT COUNT(*) as count FROM clients')
-        ]);
+        // Get counts from all key tables - with fallbacks for missing columns
+        let orgsResult = { rows: [] };
+        let usersResult = { rows: [{ count: 0 }] };
+        let quotesResult = { rows: [{ total: 0, completed: 0 }] };
+        let clientsResult = { rows: [{ count: 0 }] };
+
+        // Try to get organization counts (may fail if status column doesn't exist)
+        try {
+            orgsResult = await db.query('SELECT COUNT(*) as count, COALESCE(status, subscription_status, \'active\') as status FROM organizations GROUP BY COALESCE(status, subscription_status, \'active\')');
+        } catch (e) {
+            console.warn('Organizations query failed, trying simpler query:', e.message);
+            try {
+                orgsResult = await db.query('SELECT COUNT(*) as count, \'active\' as status FROM organizations');
+            } catch (e2) {
+                console.warn('Organizations table may not exist:', e2.message);
+            }
+        }
+
+        // Get user count
+        try {
+            usersResult = await db.query('SELECT COUNT(*) as count FROM users');
+        } catch (e) {
+            console.warn('Users query failed:', e.message);
+        }
+
+        // Get quote counts
+        try {
+            quotesResult = await db.query('SELECT COUNT(*) as total, COUNT(CASE WHEN status = \'completed\' THEN 1 END) as completed FROM quotes');
+        } catch (e) {
+            console.warn('Quotes query failed:', e.message);
+        }
+
+        // Get client count
+        try {
+            clientsResult = await db.query('SELECT COUNT(*) as count FROM clients');
+        } catch (e) {
+            console.warn('Clients query failed:', e.message);
+        }
 
         // Get recent activity (last 24 hours) - handle if audit_logs doesn't exist
         let recentActivity = { rows: [] };
@@ -38,7 +69,8 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
         const orgStats = { total: 0, active: 0, trial: 0, suspended: 0 };
         orgsResult.rows.forEach(row => {
             orgStats.total += parseInt(row.count);
-            orgStats[row.status] = parseInt(row.count);
+            const status = row.status || 'active';
+            orgStats[status] = (orgStats[status] || 0) + parseInt(row.count);
         });
 
         res.json({

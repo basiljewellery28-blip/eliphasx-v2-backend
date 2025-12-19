@@ -26,6 +26,7 @@
     "nodemailer": "^7.0.11",
     "pdfkit": "^0.17.2",
     "pg": "^8.11.3",
+    "prom-client": "^15.1.3",
     "xss": "^1.0.15"
   },
   "devDependencies": {

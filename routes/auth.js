@@ -116,6 +116,14 @@ router.post('/register', authLimiter, async (req, res) => {
     try {
         const { email, password, organizationName } = req.body;
 
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!email || !emailRegex.test(email)) {
+            return res.status(400).json({
+                error: 'Please provide a valid email address.'
+            });
+        }
+
         // Validate password strength
         if (!isPasswordStrong(password)) {
             return res.status(400).json({
