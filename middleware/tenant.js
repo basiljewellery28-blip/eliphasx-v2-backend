@@ -43,10 +43,12 @@ const planLimits = {
  */
 const loadOrganization = async (req, res, next) => {
     if (!req.user) {
+        console.error('DEBUG: loadOrganization called without req.user');
         return res.status(401).json({ error: 'Authentication required' });
     }
 
     if (!req.user.organization_id) {
+        console.error('DEBUG: loadOrganization failed - missing organization_id for user:', req.user.email);
         return res.status(403).json({
             error: 'Organization required',
             message: 'Your account is not associated with an organization. Please contact support.'

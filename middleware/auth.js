@@ -18,6 +18,7 @@ const authenticateToken = async (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        // console.log('DEBUG: Token decoded:', decoded);
 
         // Fetch fresh user data including organization_id
         const result = await db.query(
@@ -26,12 +27,21 @@ const authenticateToken = async (req, res, next) => {
         );
 
         if (result.rows.length === 0) {
+            console.error('DEBUG: User not found in DB for ID:', decoded.id);
             return res.status(403).json({ error: 'User not found' });
         }
 
-        req.user = result.rows[0];
+        const user = result.rows[0];
+        // console.log('DEBUG: User fetched from DB:', user);
+
+        if (!user.organization_id) {
+            console.error('DEBUG: User has no organization_id:', user.email);
+        }
+
+        req.user = user;
         next();
     } catch (err) {
+        console.error('DEBUG: Auth error:', err.message);
         return res.status(403).json({ error: 'Invalid token' });
     }
 };
