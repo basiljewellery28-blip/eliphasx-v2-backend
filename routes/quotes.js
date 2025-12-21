@@ -69,7 +69,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // POST create quote
-router.post('/', authenticateToken, validate(quoteValidation.create), async (req, res) => {
+router.post('/', authenticateToken, checkQuoteLimit, validate(quoteValidation.create), async (req, res) => {
     console.log('Backend: Received POST /quotes request');
     console.log('Request body keys:', Object.keys(req.body));
     try {

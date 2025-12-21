@@ -7,23 +7,24 @@
 const db = require('../config/database');
 
 // Plan feature limits
+// Plan feature limits
 const planLimits = {
     trial: {
         maxUsers: 2,
         maxQuotesPerMonth: 20,
+        adminPdf: false,
+        whiteLabel: false,
+        apiAccess: false
+    },
+    essential: {
+        maxUsers: 1,
+        maxQuotesPerMonth: 50,
         adminPdf: true,
         whiteLabel: false,
         apiAccess: false
     },
     professional: {
-        maxUsers: 3,
-        maxQuotesPerMonth: 100,
-        adminPdf: true,
-        whiteLabel: false,
-        apiAccess: false
-    },
-    business: {
-        maxUsers: 10,
+        maxUsers: 5,
         maxQuotesPerMonth: -1, // unlimited
         adminPdf: true,
         whiteLabel: true,
@@ -31,7 +32,7 @@ const planLimits = {
     },
     enterprise: {
         maxUsers: -1, // unlimited
-        maxQuotesPerMonth: -1,
+        maxQuotesPerMonth: -1, // unlimited
         adminPdf: true,
         whiteLabel: true,
         apiAccess: true
