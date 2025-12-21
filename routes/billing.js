@@ -96,14 +96,6 @@ router.post('/initialize', authenticateToken, loadOrganization, requireOrgOwner,
 
         const reference = `eliphasx_${org.id}_${Date.now()}`;
 
-        console.log('DEBUG: Payment Params:', {
-            plan,
-            billingCycle,
-            amount: planConfig.amount,
-            keyAvailable: !!process.env.PAYSTACK_PUBLIC_KEY,
-            keyPrefix: process.env.PAYSTACK_PUBLIC_KEY ? process.env.PAYSTACK_PUBLIC_KEY.substring(0, 8) : 'NONE'
-        });
-
         res.json({
             message: 'Payment initialization ready',
             paystack: {
