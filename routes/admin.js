@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
-const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { authenticateToken, requireAdmin, requireOrgOwner } = require('../middleware/auth');
 const { logAudit, AuditAction } = require('../services/auditService');
 
 // GET metal prices (Public to authenticated users)
@@ -14,8 +14,8 @@ router.get('/metal-prices', authenticateToken, async (req, res) => {
     }
 });
 
-// PUT update metal prices (Admin only)
-router.put('/metal-prices', authenticateToken, requireAdmin, async (req, res) => {
+// PUT update metal prices (Org Owner or Admin)
+router.put('/metal-prices', authenticateToken, requireOrgOwner, async (req, res) => {
     try {
         const { prices } = req.body; // Expecting array of { id, price } or { metal_type, price }
 
@@ -116,8 +116,8 @@ router.get('/stone-prices', authenticateToken, async (req, res) => {
     }
 });
 
-// PUT update stone prices (Admin only)
-router.put('/stone-prices', authenticateToken, requireAdmin, async (req, res) => {
+// PUT update stone prices (Org Owner or Admin)
+router.put('/stone-prices', authenticateToken, requireOrgOwner, async (req, res) => {
     try {
         const { prices } = req.body; // Expecting array of { id, cost }
 

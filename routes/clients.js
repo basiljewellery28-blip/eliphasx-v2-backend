@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
-const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { authenticateToken, requireOrgOwner } = require('../middleware/auth');
 const { validate, clientValidation } = require('../middleware/validation');
 const { loadOrganization } = require('../middleware/tenant');
 const EmailService = require('../services/emailService');
@@ -10,8 +10,8 @@ const xss = require('xss');
 // Apply tenant middleware to all routes
 router.use(authenticateToken, loadOrganization);
 
-// GET unverified count (Admin only, scoped to organization)
-router.get('/unverified-count', requireAdmin, async (req, res) => {
+// GET unverified count (Org Owner or Admin, scoped to organization)
+router.get('/unverified-count', requireOrgOwner, async (req, res) => {
     try {
         const result = await db.query(
             'SELECT COUNT(*) FROM clients WHERE is_verified = false AND organization_id = $1',
@@ -164,8 +164,8 @@ router.post('/', validate(clientValidation.create), async (req, res) => {
     }
 });
 
-// PUT verify client (Admin only, scoped to organization)
-router.put('/:id/verify', requireAdmin, async (req, res) => {
+// PUT verify client (Org Owner or Admin, scoped to organization)
+router.put('/:id/verify', requireOrgOwner, async (req, res) => {
     try {
         const result = await db.query(
             'UPDATE clients SET is_verified = true WHERE id = $1 AND organization_id = $2 RETURNING *',
@@ -180,8 +180,8 @@ router.put('/:id/verify', requireAdmin, async (req, res) => {
     }
 });
 
-// PUT update client (Admin only, scoped to organization)
-router.put('/:id', requireAdmin, async (req, res) => {
+// PUT update client (Org Owner or Admin, scoped to organization)
+router.put('/:id', requireOrgOwner, async (req, res) => {
     try {
         console.log('Update Client Request:', req.params.id, req.body);
         const { name, company, email, phone, pricing_template } = req.body;

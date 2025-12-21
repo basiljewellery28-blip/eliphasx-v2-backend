@@ -1,9 +1,9 @@
 const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
 
 // Configure AWS SES Client
-// Uses AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION from environment
+// SES uses SES_REGION (defaults to eu-west-1) which may be different from S3's AWS_REGION
 const sesClient = new SESClient({
-    region: process.env.AWS_REGION || 'eu-west-1',
+    region: process.env.SES_REGION || 'eu-west-1',
     credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
@@ -11,7 +11,10 @@ const sesClient = new SESClient({
 });
 
 // Sender email - must be verified in AWS SES
-const FROM_EMAIL = process.env.SES_FROM_EMAIL || process.env.SMTP_USER || 'noreply@basilx.co.za';
+const FROM_EMAIL = process.env.SES_FROM_EMAIL || 'noreply@basilx.co.za';
+
+// Debug: Log FROM_EMAIL at startup
+console.log(`📧 Email Service initialized. FROM_EMAIL: ${FROM_EMAIL}`);
 
 class EmailService {
 
@@ -19,6 +22,9 @@ class EmailService {
      * Send an email using AWS SES
      */
     static async sendEmail(to, subject, htmlBody, textBody = null) {
+        // Debug: Log actual FROM address being used
+        console.log(`📧 Sending email FROM: ${FROM_EMAIL} TO: ${to}`);
+
         // If no AWS credentials, mock the email
         if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
             console.log('---------------------------------------------------');
