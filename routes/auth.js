@@ -538,7 +538,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
 
         const result = await db.query(
             `UPDATE users 
-             SET first_name = $1, last_name = $2, phone = $3, job_title = $4, updated_at = NOW()
+             SET first_name = $1, last_name = $2, phone = $3, job_title = $4
              WHERE id = $5
              RETURNING id, email, first_name, last_name, phone, job_title, role, is_org_owner`,
             [
@@ -635,7 +635,7 @@ router.put('/change-password', authenticateToken, authLimiter, async (req, res) 
         // Hash and update new password
         const hashedPassword = await bcrypt.hash(newPassword, 12);
         await db.query(
-            'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+            'UPDATE users SET password_hash = $1 WHERE id = $2',
             [hashedPassword, req.user.id]
         );
 
