@@ -313,7 +313,7 @@ router.get('/users', authenticateToken, loadOrganization, async (req, res) => {
  */
 router.post('/invite', authenticateToken, loadOrganization, requireOrgOwner, async (req, res) => {
     try {
-        const { email } = req.body;
+        const { email, role } = req.body;
         const org = req.organization;
         const inviter = req.user;
 
@@ -322,6 +322,10 @@ router.post('/invite', authenticateToken, loadOrganization, requireOrgOwner, asy
         if (!email || !emailRegex.test(email)) {
             return res.status(400).json({ error: 'Please provide a valid email address' });
         }
+
+        // Validate role (optional, default to sales if invalid or missing)
+        const validRoles = ['admin', 'sales', 'designer', 'user'];
+        const userRole = validRoles.includes(role) ? role : 'user';
 
         // Check user limit
         const userCount = await db.query(
@@ -362,7 +366,7 @@ router.post('/invite', authenticateToken, loadOrganization, requireOrgOwner, asy
         await db.query(
             `INSERT INTO invitations (organization_id, email, role, invite_token, invited_by, expires_at)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [org.id, xss(email), 'sales', inviteToken, inviter.id, expiresAt]
+            [org.id, xss(email), userRole, inviteToken, inviter.id, expiresAt]
         );
 
         const inviteUrl = `${process.env.FRONTEND_URL}/accept-invite/${inviteToken}`;
