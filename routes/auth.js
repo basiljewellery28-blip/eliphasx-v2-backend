@@ -90,7 +90,13 @@ router.post('/login', authLimiter, async (req, res) => {
 
         // Generate token
         const token = jwt.sign(
-            { id: user.id, email: user.email, role: user.role },
+            {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+                organization_id: user.organization_id,
+                is_org_owner: user.is_org_owner
+            },
             process.env.JWT_SECRET,
             { expiresIn: '8h' }
         );
