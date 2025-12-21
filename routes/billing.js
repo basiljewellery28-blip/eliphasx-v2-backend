@@ -12,18 +12,19 @@ const crypto = require('crypto');
 
 // Plan configurations (in kobo/cents - Paystack uses smallest currency unit)
 // Plan configurations (in kobo/cents - Paystack uses smallest currency unit)
+// Plan configurations (in kobo/cents - Paystack uses smallest currency unit)
 const PLANS = {
-    starter: {
-        monthly: { amount: 89900, name: 'Starter Monthly' },
-        annual: { amount: 899000, name: 'Starter Annual' }
+    essential: {
+        monthly: { amount: 89900, name: 'Essential Monthly' },
+        annual: { amount: 899000, name: 'Essential Annual' }
     },
-    growth: {
-        monthly: { amount: 199900, name: 'Growth Monthly' },
-        annual: { amount: 1999000, name: 'Growth Annual' }
+    professional: {
+        monthly: { amount: 199900, name: 'Professional Monthly' },
+        annual: { amount: 1999000, name: 'Professional Annual' }
     },
-    scale: {
-        monthly: { amount: 399900, name: 'Scale Monthly' },
-        annual: { amount: 3999000, name: 'Scale Annual' }
+    enterprise: {
+        monthly: { amount: 399900, name: 'Enterprise Monthly' },
+        annual: { amount: 3999000, name: 'Enterprise Annual' }
     }
 };
 
