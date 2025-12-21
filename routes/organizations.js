@@ -231,6 +231,37 @@ router.get('/dashboard-stats', authenticateToken, loadOrganization, requireOrgOw
     }
 });
 
+/**
+ * GET /organizations/audit-logs
+ * Get audit logs for the organization
+ */
+router.get('/audit-logs', authenticateToken, loadOrganization, requireOrgOwner, async (req, res) => {
+    try {
+        const orgId = req.organization.id;
+        const limit = parseInt(req.query.limit) || 50;
+
+        const result = await db.query(`
+            SELECT 
+                al.action,
+                al.details,
+                al.ip_address,
+                al.created_at,
+                u.email as user_email
+            FROM audit_logs al
+            LEFT JOIN users u ON al.user_id = u.id
+            WHERE al.organization_id = $1
+            ORDER BY al.created_at DESC
+            LIMIT $2
+        `, [orgId, limit]);
+
+        res.json({ logs: result.rows });
+    } catch (error) {
+        console.error('Audit logs error:', error.message);
+        res.json({ logs: [] }); // Return empty array if table doesn't exist
+    }
+});
+
+
 
 /**
  * PUT /organizations/current
