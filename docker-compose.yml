@@ -45,6 +45,8 @@ services:
       DB_NAME: ${DB_NAME:-eliphasx_db}
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      PAYSTACK_PUBLIC_KEY: ${PAYSTACK_PUBLIC_KEY}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
     volumes:
       - backend_uploads:/app/uploads
     ports:
