@@ -91,6 +91,148 @@ router.get('/current', authenticateToken, loadOrganization, async (req, res) => 
 });
 
 /**
+ * GET /organizations/dashboard-stats
+ * Get comprehensive dashboard statistics for organization admins
+ */
+router.get('/dashboard-stats', authenticateToken, loadOrganization, requireOrgOwner, async (req, res) => {
+    try {
+        const orgId = req.organization.id;
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        // Quote statistics
+        const quoteStats = await db.query(`
+            SELECT 
+                COUNT(*) as total_quotes,
+                COUNT(CASE WHEN status = 'draft' THEN 1 END) as draft_quotes,
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_quotes,
+                COUNT(CASE WHEN created_at >= $2 THEN 1 END) as quotes_this_month,
+                COALESCE(SUM(CASE WHEN status = 'completed' THEN total ELSE 0 END), 0) as total_revenue,
+                COALESCE(SUM(CASE WHEN status = 'completed' AND created_at >= $2 THEN total ELSE 0 END), 0) as revenue_this_month
+            FROM quotes WHERE organization_id = $1
+        `, [orgId, startOfMonth.toISOString()]);
+
+        // Client statistics
+        const clientStats = await db.query(`
+            SELECT 
+                COUNT(*) as total_clients,
+                COUNT(CASE WHEN is_verified = true THEN 1 END) as verified_clients,
+                COUNT(CASE WHEN is_verified = false THEN 1 END) as pending_clients,
+                COUNT(CASE WHEN created_at >= $2 THEN 1 END) as new_clients_this_month
+            FROM clients WHERE organization_id = $1
+        `, [orgId, startOfMonth.toISOString()]);
+
+        // Team member count
+        const teamStats = await db.query(`
+            SELECT COUNT(*) as team_members
+            FROM users WHERE organization_id = $1
+        `, [orgId]);
+
+        // Monthly quote trend (last 6 months)
+        const monthlyTrend = await db.query(`
+            SELECT 
+                DATE_TRUNC('month', created_at) as month,
+                COUNT(*) as quote_count,
+                COALESCE(SUM(CASE WHEN status = 'completed' THEN total ELSE 0 END), 0) as revenue
+            FROM quotes 
+            WHERE organization_id = $1 
+                AND created_at >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'
+            GROUP BY DATE_TRUNC('month', created_at)
+            ORDER BY month ASC
+        `, [orgId]);
+
+        // Recent activity (last 10 items)
+        const recentQuotes = await db.query(`
+            SELECT 
+                'quote' as type,
+                q.id,
+                q.quote_number as title,
+                q.status,
+                q.total as amount,
+                q.created_at,
+                u.email as created_by_email,
+                c.name as client_name
+            FROM quotes q
+            LEFT JOIN users u ON q.user_id = u.id
+            LEFT JOIN clients c ON q.client_id = c.id
+            WHERE q.organization_id = $1
+            ORDER BY q.created_at DESC
+            LIMIT 5
+        `, [orgId]);
+
+        const recentClients = await db.query(`
+            SELECT 
+                'client' as type,
+                c.id,
+                c.name as title,
+                c.company,
+                c.is_verified,
+                c.created_at,
+                u.email as created_by_email
+            FROM clients c
+            LEFT JOIN users u ON c.created_by = u.id
+            WHERE c.organization_id = $1
+            ORDER BY c.created_at DESC
+            LIMIT 5
+        `, [orgId]);
+
+        // Combine and sort recent activity
+        const recentActivity = [
+            ...recentQuotes.rows.map(q => ({
+                type: 'quote',
+                id: q.id,
+                title: `Quote ${q.quote_number}`,
+                subtitle: `${q.client_name || 'Unknown'} - R${parseFloat(q.amount || 0).toFixed(2)}`,
+                status: q.status,
+                createdAt: q.created_at,
+                createdBy: q.created_by_email
+            })),
+            ...recentClients.rows.map(c => ({
+                type: 'client',
+                id: c.id,
+                title: c.title,
+                subtitle: c.company || 'No company',
+                status: c.is_verified ? 'verified' : 'pending',
+                createdAt: c.created_at,
+                createdBy: c.created_by_email
+            }))
+        ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 10);
+
+        res.json({
+            quotes: {
+                total: parseInt(quoteStats.rows[0].total_quotes) || 0,
+                draft: parseInt(quoteStats.rows[0].draft_quotes) || 0,
+                completed: parseInt(quoteStats.rows[0].completed_quotes) || 0,
+                thisMonth: parseInt(quoteStats.rows[0].quotes_this_month) || 0
+            },
+            revenue: {
+                total: parseFloat(quoteStats.rows[0].total_revenue) || 0,
+                thisMonth: parseFloat(quoteStats.rows[0].revenue_this_month) || 0
+            },
+            clients: {
+                total: parseInt(clientStats.rows[0].total_clients) || 0,
+                verified: parseInt(clientStats.rows[0].verified_clients) || 0,
+                pending: parseInt(clientStats.rows[0].pending_clients) || 0,
+                newThisMonth: parseInt(clientStats.rows[0].new_clients_this_month) || 0
+            },
+            team: {
+                members: parseInt(teamStats.rows[0].team_members) || 0
+            },
+            monthlyTrend: monthlyTrend.rows.map(row => ({
+                month: row.month,
+                quoteCount: parseInt(row.quote_count),
+                revenue: parseFloat(row.revenue)
+            })),
+            recentActivity
+        });
+    } catch (error) {
+        console.error('Dashboard stats error:', error.message);
+        res.status(500).json({ error: 'Failed to fetch dashboard stats' });
+    }
+});
+
+
+/**
  * PUT /organizations/current
  * Update organization details
  */
