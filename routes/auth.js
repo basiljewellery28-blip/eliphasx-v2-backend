@@ -463,4 +463,196 @@ router.post('/register-invite', authLimiter, async (req, res) => {
     }
 });
 
+// =====================================
+// USER PROFILE MANAGEMENT
+// =====================================
+
+const { authenticateToken } = require('../middleware/auth');
+
+/**
+ * GET /auth/me
+ * Get current authenticated user's full profile
+ */
+router.get('/me', authenticateToken, async (req, res) => {
+    try {
+        const result = await db.query(
+            `SELECT u.id, u.email, u.role, u.first_name, u.last_name, u.phone, u.job_title,
+                    u.is_org_owner, u.created_at, u.organization_id,
+                    o.name as organization_name, o.plan as organization_plan,
+                    o.subscription_status, o.trial_ends_at
+             FROM users u
+             LEFT JOIN organizations o ON u.organization_id = o.id
+             WHERE u.id = $1`,
+            [req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const user = result.rows[0];
+
+        // Get user stats
+        const statsResult = await db.query(
+            `SELECT 
+                (SELECT COUNT(*) FROM quotes WHERE user_id = $1) as total_quotes,
+                (SELECT COUNT(*) FROM clients WHERE created_by = $1) as total_clients`,
+            [req.user.id]
+        );
+
+        res.json({
+            user: {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                phone: user.phone,
+                jobTitle: user.job_title,
+                isOrgOwner: user.is_org_owner,
+                createdAt: user.created_at,
+                organizationId: user.organization_id,
+                organizationName: user.organization_name,
+                organizationPlan: user.organization_plan,
+                subscriptionStatus: user.subscription_status,
+                trialEndsAt: user.trial_ends_at
+            },
+            stats: {
+                totalQuotes: parseInt(statsResult.rows[0].total_quotes) || 0,
+                totalClients: parseInt(statsResult.rows[0].total_clients) || 0
+            }
+        });
+    } catch (error) {
+        console.error('Get profile error:', error.message);
+        res.status(500).json({ error: 'Failed to fetch profile' });
+    }
+});
+
+/**
+ * PUT /auth/profile
+ * Update user's personal information
+ */
+router.put('/profile', authenticateToken, async (req, res) => {
+    try {
+        const { firstName, lastName, phone, jobTitle } = req.body;
+
+        const result = await db.query(
+            `UPDATE users 
+             SET first_name = $1, last_name = $2, phone = $3, job_title = $4, updated_at = NOW()
+             WHERE id = $5
+             RETURNING id, email, first_name, last_name, phone, job_title, role, is_org_owner`,
+            [
+                xss(firstName || ''),
+                xss(lastName || ''),
+                xss(phone || ''),
+                xss(jobTitle || ''),
+                req.user.id
+            ]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const user = result.rows[0];
+
+        // Log profile update
+        logAudit({
+            userId: req.user.id,
+            organizationId: req.user.organization_id,
+            action: 'PROFILE_UPDATE',
+            details: { fields: ['firstName', 'lastName', 'phone', 'jobTitle'] },
+            req
+        });
+
+        res.json({
+            message: 'Profile updated successfully',
+            user: {
+                id: user.id,
+                email: user.email,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                phone: user.phone,
+                jobTitle: user.job_title,
+                role: user.role,
+                isOrgOwner: user.is_org_owner
+            }
+        });
+    } catch (error) {
+        console.error('Update profile error:', error.message);
+        res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+
+/**
+ * PUT /auth/change-password
+ * Change user's password (requires current password)
+ */
+router.put('/change-password', authenticateToken, authLimiter, async (req, res) => {
+    try {
+        const { currentPassword, newPassword, confirmPassword } = req.body;
+
+        // Validate inputs
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            return res.status(400).json({ error: 'All password fields are required' });
+        }
+
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({ error: 'New passwords do not match' });
+        }
+
+        // Validate new password strength
+        if (!isPasswordStrong(newPassword)) {
+            return res.status(400).json({
+                error: 'New password must be at least 8 characters with uppercase, lowercase, and a number'
+            });
+        }
+
+        // Get current password hash
+        const userResult = await db.query(
+            'SELECT password_hash FROM users WHERE id = $1',
+            [req.user.id]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Verify current password
+        const validPassword = await bcrypt.compare(currentPassword, userResult.rows[0].password_hash);
+        if (!validPassword) {
+            // Log failed attempt
+            logAudit({
+                userId: req.user.id,
+                organizationId: req.user.organization_id,
+                action: 'PASSWORD_CHANGE_FAILED',
+                details: { reason: 'invalid_current_password' },
+                req
+            });
+            return res.status(401).json({ error: 'Current password is incorrect' });
+        }
+
+        // Hash and update new password
+        const hashedPassword = await bcrypt.hash(newPassword, 12);
+        await db.query(
+            'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+            [hashedPassword, req.user.id]
+        );
+
+        // Log successful password change
+        logAudit({
+            userId: req.user.id,
+            organizationId: req.user.organization_id,
+            action: 'PASSWORD_CHANGED',
+            details: {},
+            req
+        });
+
+        res.json({ message: 'Password changed successfully' });
+    } catch (error) {
+        console.error('Change password error:', error.message);
+        res.status(500).json({ error: 'Failed to change password' });
+    }
+});
+
 module.exports = router;
