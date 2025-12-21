@@ -11,18 +11,19 @@ const { loadOrganization } = require('../middleware/tenant');
 const crypto = require('crypto');
 
 // Plan configurations (in kobo/cents - Paystack uses smallest currency unit)
+// Plan configurations (in kobo/cents - Paystack uses smallest currency unit)
 const PLANS = {
-    professional: {
-        monthly: { amount: 149900, name: 'Professional Monthly' },
-        annual: { amount: 1499000, name: 'Professional Annual' }
+    starter: {
+        monthly: { amount: 89900, name: 'Starter Monthly' },
+        annual: { amount: 899000, name: 'Starter Annual' }
     },
-    business: {
-        monthly: { amount: 299900, name: 'Business Monthly' },
-        annual: { amount: 2999000, name: 'Business Annual' }
+    growth: {
+        monthly: { amount: 199900, name: 'Growth Monthly' },
+        annual: { amount: 1999000, name: 'Growth Annual' }
     },
-    enterprise: {
-        monthly: { amount: 599900, name: 'Enterprise Monthly' },
-        annual: { amount: 5999000, name: 'Enterprise Annual' }
+    scale: {
+        monthly: { amount: 399900, name: 'Scale Monthly' },
+        annual: { amount: 3999000, name: 'Scale Annual' }
     }
 };
 
