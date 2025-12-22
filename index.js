@@ -2,7 +2,22 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const Sentry = require('@sentry/node');
 require('dotenv').config();
+
+// Initialize Sentry for error tracking
+if (process.env.SENTRY_DSN) {
+    Sentry.init({
+        dsn: process.env.SENTRY_DSN,
+        environment: process.env.NODE_ENV || 'development',
+        tracesSampleRate: 0.1, // Capture 10% of transactions for performance monitoring
+        integrations: [
+            Sentry.httpIntegration({ tracing: true }),
+            Sentry.expressIntegration({ app: undefined }) // Will be set after app creation
+        ],
+    });
+    console.log('🔍 Sentry error tracking initialized');
+}
 
 // Import metrics service
 const { register, metricsMiddleware } = require('./services/metricsService');
@@ -83,6 +98,23 @@ app.get('/metrics', async (req, res) => {
     }
 });
 
+// Sentry error handler - must be before any other error middleware
+if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
+}
+
+// Generic error handler
+app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err.message);
+    res.status(500).json({
+        error: 'Internal server error',
+        ...(process.env.NODE_ENV === 'development' && { details: err.message })
+    });
+});
+
 app.listen(PORT, () => {
     console.log(`ELIPHASx server running on port ${PORT}`);
+    if (process.env.SENTRY_DSN) {
+        console.log('🔍 Sentry error tracking active');
+    }
 });
