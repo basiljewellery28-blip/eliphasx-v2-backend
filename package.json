@@ -9,8 +9,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "migrate": "node db/migrate.js",
-    "seed": "node db/seed.js"
+    "migrate": "npx knex migrate:latest",
+    "migrate:rollback": "npx knex migrate:rollback",
+    "migrate:status": "npx knex migrate:status",
+    "seed": "npx knex seed:run"
   },
   "keywords": [],
   "author": "",
@@ -27,6 +29,7 @@
     "helmet": "^8.1.0",
     "joi": "^17.11.0",
     "jsonwebtoken": "^9.0.2",
+    "knex": "^3.1.0",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.11",
     "pdfkit": "^0.17.2",
