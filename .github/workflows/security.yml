@@ -1,0 +1,31 @@
+name: Security Audit
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight
+  workflow_dispatch:
+
+jobs:
+  security-audit:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Audit backend dependencies
+        working-directory: ./eliphasx-v2-backend
+        run: |
+          npm ci
+          npm audit --audit-level=high || true
+
+      - name: Audit frontend dependencies
+        working-directory: ./eliphasx-v2-frontend
+        run: |
+          npm ci
+          npm audit --audit-level=high || true

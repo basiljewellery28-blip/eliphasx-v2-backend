@@ -1,0 +1,42 @@
+name: Deploy Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Lightsail
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "🚀 Starting deployment..."
+            
+            # Pull latest code
+            cd ~/eliphasx-v2-backend && git pull
+            cd ~/eliphasx-v2-frontend && git pull
+            
+            # Rebuild and restart containers
+            cd ~/eliphasx-v2-backend
+            sudo docker compose up -d --build
+            
+            echo "✅ Deployment complete!"
+
+      - name: Notify on success
+        if: success()
+        run: echo "Deployment to production completed successfully!"
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "Deployment failed! Check the logs for details."
