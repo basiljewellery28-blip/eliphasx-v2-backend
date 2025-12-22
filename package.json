@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "migrate": "node db/migrate.js",
     "seed": "node db/seed.js"
   },
@@ -32,6 +35,8 @@
     "xss": "^1.0.15"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "supertest": "^7.1.4",
+    "vitest": "^4.0.16"
   }
 }
