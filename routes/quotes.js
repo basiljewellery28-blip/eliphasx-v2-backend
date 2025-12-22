@@ -283,4 +283,229 @@ router.get('/:id/pdf', authenticateToken, loadOrganization, async (req, res) => 
     }
 });
 
+// ============================================
+// QUOTE APPROVAL WORKFLOW ENDPOINTS
+// ============================================
+
+/**
+ * GET /quotes/pending-approval
+ * Get all quotes pending approval for managers/admins
+ */
+router.get('/pending-approval', async (req, res) => {
+    try {
+        // Only admins and org owners can view pending approvals
+        if (req.user.role !== 'admin' && !req.user.is_org_owner) {
+            return res.status(403).json({ error: 'Only managers can view pending approvals' });
+        }
+
+        const result = await db.query(`
+            SELECT q.*, c.name as client_name, c.company, u.email as submitted_by_email,
+                   u.first_name as submitted_by_first_name, u.last_name as submitted_by_last_name
+            FROM quotes q
+            LEFT JOIN clients c ON q.client_id = c.id
+            LEFT JOIN users u ON q.submitted_for_approval_by = u.id
+            WHERE q.organization_id = $1 
+              AND q.status = 'pending_approval'
+            ORDER BY q.submitted_for_approval_at DESC
+        `, [req.organization.id]);
+
+        res.json({ quotes: result.rows });
+    } catch (error) {
+        console.error('Fetch pending approvals error:', error.message);
+        res.status(500).json({ error: 'Failed to fetch pending approvals' });
+    }
+});
+
+/**
+ * POST /quotes/:id/submit-for-approval
+ * Submit a quote for manager approval
+ */
+router.post('/:id/submit-for-approval', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { notes } = req.body;
+
+        // Verify quote belongs to this organization and user
+        const quoteCheck = await db.query(
+            'SELECT * FROM quotes WHERE id = $1 AND organization_id = $2',
+            [id, req.organization.id]
+        );
+
+        if (quoteCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Quote not found' });
+        }
+
+        const quote = quoteCheck.rows[0];
+
+        // Can't submit if already pending or approved
+        if (quote.status === 'pending_approval') {
+            return res.status(400).json({ error: 'Quote is already pending approval' });
+        }
+        if (quote.status === 'approved') {
+            return res.status(400).json({ error: 'Quote is already approved' });
+        }
+
+        // Update quote status
+        const result = await db.query(`
+            UPDATE quotes 
+            SET status = 'pending_approval',
+                submitted_for_approval_by = $1,
+                submitted_for_approval_at = NOW(),
+                approval_notes = $2
+            WHERE id = $3
+            RETURNING *
+        `, [req.user.id, notes || null, id]);
+
+        // Log the action
+        logAudit({
+            userId: req.user.id,
+            organizationId: req.organization.id,
+            action: 'QUOTE_SUBMITTED_FOR_APPROVAL',
+            details: { quoteId: id, quoteNumber: quote.quote_number },
+            req
+        });
+
+        res.json({
+            message: 'Quote submitted for approval',
+            quote: result.rows[0]
+        });
+    } catch (error) {
+        console.error('Submit for approval error:', error.message);
+        res.status(500).json({ error: 'Failed to submit quote for approval' });
+    }
+});
+
+/**
+ * PUT /quotes/:id/approve
+ * Approve a quote (managers/admins only)
+ */
+router.put('/:id/approve', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { notes } = req.body;
+
+        // Only admins and org owners can approve
+        if (req.user.role !== 'admin' && !req.user.is_org_owner) {
+            return res.status(403).json({ error: 'Only managers can approve quotes' });
+        }
+
+        // Verify quote exists and is pending
+        const quoteCheck = await db.query(
+            'SELECT * FROM quotes WHERE id = $1 AND organization_id = $2',
+            [id, req.organization.id]
+        );
+
+        if (quoteCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Quote not found' });
+        }
+
+        const quote = quoteCheck.rows[0];
+
+        if (quote.status !== 'pending_approval') {
+            return res.status(400).json({ error: 'Quote is not pending approval' });
+        }
+
+        // Approve the quote
+        const result = await db.query(`
+            UPDATE quotes 
+            SET status = 'approved',
+                approved_by = $1,
+                approved_at = NOW(),
+                approval_notes = COALESCE($2, approval_notes)
+            WHERE id = $3
+            RETURNING *
+        `, [req.user.id, notes || null, id]);
+
+        // Log the action
+        logAudit({
+            userId: req.user.id,
+            organizationId: req.organization.id,
+            action: 'QUOTE_APPROVED',
+            details: {
+                quoteId: id,
+                quoteNumber: quote.quote_number,
+                approvedBy: req.user.email
+            },
+            req
+        });
+
+        res.json({
+            message: 'Quote approved successfully',
+            quote: result.rows[0]
+        });
+    } catch (error) {
+        console.error('Approve quote error:', error.message);
+        res.status(500).json({ error: 'Failed to approve quote' });
+    }
+});
+
+/**
+ * PUT /quotes/:id/reject
+ * Reject a quote with reason (managers/admins only)
+ */
+router.put('/:id/reject', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reason } = req.body;
+
+        if (!reason || reason.trim() === '') {
+            return res.status(400).json({ error: 'Rejection reason is required' });
+        }
+
+        // Only admins and org owners can reject
+        if (req.user.role !== 'admin' && !req.user.is_org_owner) {
+            return res.status(403).json({ error: 'Only managers can reject quotes' });
+        }
+
+        // Verify quote exists and is pending
+        const quoteCheck = await db.query(
+            'SELECT * FROM quotes WHERE id = $1 AND organization_id = $2',
+            [id, req.organization.id]
+        );
+
+        if (quoteCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Quote not found' });
+        }
+
+        const quote = quoteCheck.rows[0];
+
+        if (quote.status !== 'pending_approval') {
+            return res.status(400).json({ error: 'Quote is not pending approval' });
+        }
+
+        // Reject the quote (set back to draft with rejection notes)
+        const result = await db.query(`
+            UPDATE quotes 
+            SET status = 'rejected',
+                approval_notes = $1,
+                approved_by = $2,
+                approved_at = NOW()
+            WHERE id = $3
+            RETURNING *
+        `, [reason, req.user.id, id]);
+
+        // Log the action
+        logAudit({
+            userId: req.user.id,
+            organizationId: req.organization.id,
+            action: 'QUOTE_REJECTED',
+            details: {
+                quoteId: id,
+                quoteNumber: quote.quote_number,
+                rejectedBy: req.user.email,
+                reason: reason
+            },
+            req
+        });
+
+        res.json({
+            message: 'Quote rejected',
+            quote: result.rows[0]
+        });
+    } catch (error) {
+        console.error('Reject quote error:', error.message);
+        res.status(500).json({ error: 'Failed to reject quote' });
+    }
+});
+
 module.exports = router;
