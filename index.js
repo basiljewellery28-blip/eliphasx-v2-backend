@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
 const Sentry = require('@sentry/node');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 // Initialize Sentry for error tracking
@@ -45,13 +46,16 @@ const allowedOrigins = [
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
+        // Allow requests with no origin (same-origin requests, nginx proxy, mobile apps)
+        // This is safe because authentication is handled by JWT, not CORS
+        if (!origin) {
+            return callback(null, true);
+        }
 
         if (allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            console.log('CORS blocked origin:', origin);
+            console.warn('CORS blocked origin:', origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -63,9 +67,19 @@ app.use(cors(corsOptions));
 // Body Parsing with size limit
 app.use(express.json({ limit: '2mb' }));
 
+// 🛡️ Global Rate Limiting - prevent API abuse
+const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 200, // 200 requests per 15 min per IP
+    message: { error: 'Too many requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.path === '/api/health' // Don't limit health checks
+});
+app.use('/api/', globalLimiter);
+
 // Prometheus metrics middleware - track all requests
 app.use(metricsMiddleware);
-
 // Serve uploaded files (logos, etc.)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -78,6 +92,7 @@ app.use('/api/search', require('./routes/search'));
 app.use('/api/billing', require('./routes/billing'));
 app.use('/api/organizations', require('./routes/organizations'));
 app.use('/api/sysadmin', require('./routes/sysadmin')); // 🛡️ Super Admin Routes
+app.use('/api/branches', require('./routes/branches')); // 🌳 Multi-Branch Support
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -88,8 +103,19 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Prometheus metrics endpoint (internal use only)
-app.get('/metrics', async (req, res) => {
+// 🛡️ Prometheus metrics endpoint (restricted to internal/localhost only)
+app.get('/metrics', (req, res, next) => {
+    // Get client IP (behind proxy)
+    const clientIP = req.ip || req.connection.remoteAddress || '';
+    const isLocalhost = clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
+    const isInternal = clientIP.startsWith('10.') || clientIP.startsWith('172.') || clientIP.startsWith('192.168.');
+
+    if (!isLocalhost && !isInternal) {
+        console.warn(`🚫 Blocked metrics access from: ${clientIP}`);
+        return res.status(403).json({ error: 'Access denied' });
+    }
+    next();
+}, async (req, res) => {
     try {
         res.set('Content-Type', register.contentType);
         res.end(await register.metrics());

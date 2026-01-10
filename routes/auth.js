@@ -140,6 +140,8 @@ router.post('/register', authLimiter, async (req, res) => {
             postalCode,
             registrationNumber,
             vatNumber,
+            // Team size for trial assignment
+            teamSize,
             // Consent
             acceptedTerms,
             acceptedPrivacy
@@ -173,18 +175,25 @@ router.post('/register', authLimiter, async (req, res) => {
         const companyName = organizationName || emailDomain.charAt(0).toUpperCase() + emailDomain.slice(1);
         const slug = generateSlug(companyName) + '-' + Date.now().toString(36);
 
-        // Create organization for new user (14-day trial) with full details
+        // Determine trial plan based on team size
+        // 1-9 people = Professional, 10+ = Enterprise
+        const expectedTeamSize = teamSize || 'just_me';
+        const trialPlan = ['10+', 'more_than_10'].includes(expectedTeamSize) ? 'enterprise' : 'professional';
+
+        // Create organization for new user (28-day trial) with full details
         const orgResult = await db.query(
             `INSERT INTO organizations (
-                name, slug, plan, subscription_status, trial_ends_at, settings,
+                name, slug, plan, subscription_status, trial_ends_at, expected_team_size, settings,
                 contact_email, phone, address_line1, address_line2, city, province,
                 postal_code, country, company_size, industry, registration_number, vat_number
-            ) VALUES ($1, $2, 'trial', 'trial', NOW() + INTERVAL '14 days', '{}',
-                $3, $4, $5, $6, $7, $8, $9, 'South Africa', $10, $11, $12, $13)
+            ) VALUES ($1, $2, $3, 'trial', NOW() + INTERVAL '28 days', $4, '{}',
+                $5, $6, $7, $8, $9, $10, $11, 'South Africa', $12, $13, $14, $15)
              RETURNING id`,
             [
                 xss(companyName),
                 slug,
+                trialPlan,
+                expectedTeamSize,
                 xss(email),
                 xss(phone || ''),
                 xss(addressLine1 || ''),
@@ -422,12 +431,16 @@ router.post('/register-invite', authLimiter, async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 12);
 
+        // Determine if user counts towards limit (accountants don't)
+        const countsTowardsLimit = invitation.role !== 'accountant';
+
         // Create user and link to organization
         const userResult = await db.query(
             `INSERT INTO users (
                 email, password_hash, role, organization_id, is_org_owner,
-                first_name, last_name, phone, job_title, accepted_terms_at, accepted_privacy_at
-            ) VALUES ($1, $2, $3, $4, false, $5, $6, $7, $8, $9, $10)
+                first_name, last_name, phone, job_title, accepted_terms_at, accepted_privacy_at,
+                counts_towards_limit
+            ) VALUES ($1, $2, $3, $4, false, $5, $6, $7, $8, $9, $10, $11)
              RETURNING id, email, role, organization_id, first_name, last_name`,
             [
                 invitation.email,
@@ -439,7 +452,8 @@ router.post('/register-invite', authLimiter, async (req, res) => {
                 xss(phone || ''),
                 xss(jobTitle || ''),
                 acceptedTerms ? new Date() : null,
-                acceptedPrivacy ? new Date() : null
+                acceptedPrivacy ? new Date() : null,
+                countsTowardsLimit
             ]
         );
 
@@ -652,6 +666,90 @@ router.put('/change-password', authenticateToken, authLimiter, async (req, res) 
     } catch (error) {
         console.error('Change password error:', error.message);
         res.status(500).json({ error: 'Failed to change password' });
+    }
+});
+
+/**
+ * POST /auth/switch-branch
+ * Switch user's active organization context (for multi-branch access)
+ */
+router.post('/switch-branch', authenticateToken, async (req, res) => {
+    try {
+        const { organizationId } = req.body;
+        const userId = req.user.id;
+
+        if (!organizationId) {
+            return res.status(400).json({ error: 'Organization ID is required' });
+        }
+
+        // Verify user has access to this organization
+        const accessCheck = await db.query(
+            `SELECT o.id, o.name, o.plan, o.subscription_status, o.group_id,
+                    COALESCE(uba.role, u.role) as effective_role
+             FROM organizations o
+             LEFT JOIN user_branch_access uba ON uba.organization_id = o.id AND uba.user_id = $1
+             LEFT JOIN users u ON u.id = $1
+             WHERE o.id = $2
+               AND (
+                   u.organization_id = o.id  -- User's primary org
+                   OR uba.user_id = $1       -- Explicit branch access
+                   OR o.group_id = (SELECT group_id FROM organizations WHERE id = u.organization_id)  -- Same group
+               )`,
+            [userId, organizationId]
+        );
+
+        if (accessCheck.rows.length === 0) {
+            return res.status(403).json({ error: 'You do not have access to this organization' });
+        }
+
+        const targetOrg = accessCheck.rows[0];
+
+        // Get user details
+        const userResult = await db.query(
+            'SELECT * FROM users WHERE id = $1',
+            [userId]
+        );
+        const user = userResult.rows[0];
+
+        // Generate new token with switched organization context
+        const newToken = jwt.sign(
+            {
+                id: user.id,
+                email: user.email,
+                role: targetOrg.effective_role || user.role,
+                organization_id: parseInt(organizationId),
+                is_org_owner: user.is_org_owner && user.organization_id === parseInt(organizationId)
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '8h' }
+        );
+
+        // Log branch switch
+        logAudit({
+            userId: user.id,
+            organizationId: parseInt(organizationId),
+            action: 'BRANCH_SWITCH',
+            details: {
+                fromOrg: req.user.organization_id,
+                toOrg: parseInt(organizationId),
+                toOrgName: targetOrg.name
+            },
+            req
+        });
+
+        res.json({
+            message: `Switched to ${targetOrg.name}`,
+            token: newToken,
+            organization: {
+                id: targetOrg.id,
+                name: targetOrg.name,
+                plan: targetOrg.plan,
+                subscriptionStatus: targetOrg.subscription_status
+            }
+        });
+    } catch (error) {
+        console.error('Switch branch error:', error.message);
+        res.status(500).json({ error: 'Failed to switch organization' });
     }
 });
 

@@ -7,6 +7,33 @@ const { loadOrganization, requireActiveSubscription, checkQuoteLimit } = require
 const PricingService = require('../services/pricingService');
 const { logAudit, AuditAction } = require('../services/auditService');
 
+/**
+ * Strip pricing-related fields from quote for designer role
+ * Designers can see specifications but not costs/prices/markups
+ */
+const PRICING_FIELDS = [
+    'metal_spot_price', 'metal_markup',
+    'cad_base_rate', 'cad_rendering_cost', 'cad_technical_cost', 'cad_markup',
+    'manufacturing_base_rate', 'manufacturing_markup',
+    'stone_markup',
+    'finishing_cost', 'plating_cost', 'finishing_markup',
+    'findings_markup',
+    'subtotal', 'total'
+];
+
+const stripPricingForDesigner = (quote, userRole) => {
+    if (userRole !== 'designer') return quote;
+
+    const sanitized = { ...quote };
+    for (const field of PRICING_FIELDS) {
+        if (field in sanitized) {
+            sanitized[field] = null; // Or use '[Hidden]'
+        }
+    }
+    sanitized._pricesHidden = true; // Flag for frontend
+    return sanitized;
+};
+
 // Apply tenant middleware to all routes
 router.use(authenticateToken, loadOrganization);
 
@@ -34,11 +61,15 @@ router.get('/', async (req, res) => {
               ORDER BY q.created_at DESC
             `;
             const result = await db.query(query, [orgId, req.user.id]);
-            return res.json({ quotes: result.rows });
+            // Strip pricing for designers
+            const quotes = result.rows.map(q => stripPricingForDesigner(q, req.user.role));
+            return res.json({ quotes });
         }
 
         const result = await db.query(query, [orgId]);
-        res.json({ quotes: result.rows });
+        // Strip pricing for designers (admin view, but if somehow designer is admin...)
+        const quotes = result.rows.map(q => stripPricingForDesigner(q, req.user.role));
+        res.json({ quotes });
     } catch (error) {
         console.error('Fetch quotes error:', error.message);
         res.status(500).json({ error: 'Failed to fetch quotes' });
@@ -61,7 +92,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'Quote not found' });
         }
 
-        res.json({ quote: result.rows[0] });
+        // Strip pricing for designers
+        const quote = stripPricingForDesigner(result.rows[0], req.user.role);
+        res.json({ quote });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to fetch quote' });

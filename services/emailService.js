@@ -194,6 +194,84 @@ class EmailService {
             throw error;
         }
     }
+
+    /**
+     * Send quota warning email when user reaches 80% of their limit
+     */
+    static async sendQuotaWarningEmail(email, currentCount, limit, organizationName) {
+        try {
+            const percentUsed = Math.round((currentCount / limit) * 100);
+            const remaining = limit - currentCount;
+            const billingUrl = `${process.env.FRONTEND_URL || 'https://www.basilx.co.za'}/billing`;
+
+            const subject = `⚠️ You're approaching your monthly quote limit - ${organizationName}`;
+            const htmlBody = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        .header { background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+                        .content { background: #f9f9f9; padding: 30px; border: 1px solid #e0e0e0; }
+                        .button { display: inline-block; background: #27ae60; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 20px 0; }
+                        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+                        .progress-bar { background: #e0e0e0; border-radius: 10px; overflow: hidden; height: 20px; margin: 15px 0; }
+                        .progress-fill { background: linear-gradient(90deg, #f39c12, #e74c3c); height: 100%; transition: width 0.3s; }
+                        .stats { display: flex; justify-content: space-between; margin: 10px 0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h1 style="margin: 0;">⚠️ Quota Alert</h1>
+                            <p style="margin: 10px 0 0 0; opacity: 0.9;">You're using ${percentUsed}% of your monthly quotes</p>
+                        </div>
+                        <div class="content">
+                            <h2>Hi there,</h2>
+                            <p>You're approaching your monthly quote limit for <strong>${organizationName}</strong>.</p>
+                            
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${percentUsed}%;"></div>
+                            </div>
+                            
+                            <div class="stats">
+                                <span><strong>${currentCount}</strong> quotes used</span>
+                                <span><strong>${remaining}</strong> remaining</span>
+                            </div>
+                            
+                            <p>To ensure uninterrupted service, consider upgrading to <strong>Professional</strong> for <strong>unlimited quotes</strong>.</p>
+                            
+                            <p style="text-align: center;">
+                                <a href="${billingUrl}" class="button">Upgrade Now</a>
+                            </p>
+                            
+                            <p style="color: #666; font-size: 14px;">Benefits of upgrading:</p>
+                            <ul style="color: #666;">
+                                <li>✅ Unlimited quotes</li>
+                                <li>✅ Up to 5 team members</li>
+                                <li>✅ White-label PDF branding</li>
+                                <li>✅ Priority support</li>
+                            </ul>
+                        </div>
+                        <div class="footer">
+                            <p>ELIPHASx by BASIL & Co (Pty) Ltd</p>
+                            <p>You're receiving this because you're an admin of ${organizationName}.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            await this.sendEmail(email, subject, htmlBody);
+            console.log(`Quota warning email sent to: ${email} (${currentCount}/${limit})`);
+            return true;
+        } catch (error) {
+            console.error('Failed to send quota warning email:', error.message);
+            // Don't throw - this is a non-critical notification
+            return false;
+        }
+    }
 }
 
 module.exports = EmailService;

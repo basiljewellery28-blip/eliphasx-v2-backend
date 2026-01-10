@@ -5,6 +5,7 @@
  */
 
 const db = require('../config/database');
+const EmailService = require('../services/emailService');
 
 // Plan feature limits
 // Plan feature limits
@@ -134,6 +135,26 @@ const checkQuoteLimit = async (req, res, next) => {
         );
 
         const count = parseInt(result.rows[0].count);
+
+        // Send warning email at 80% (but only once per threshold crossing)
+        const threshold80 = Math.floor(limit * 0.8);
+        if (count === threshold80) {
+            // Get org owner email for notification
+            const ownerResult = await db.query(
+                'SELECT email FROM users WHERE organization_id = $1 AND is_org_owner = true LIMIT 1',
+                [req.organization.id]
+            );
+            if (ownerResult.rows.length > 0) {
+                // Send async - don't block the request
+                EmailService.sendQuotaWarningEmail(
+                    ownerResult.rows[0].email,
+                    count,
+                    limit,
+                    req.organization.name
+                ).catch(err => console.error('Quota email failed:', err.message));
+            }
+        }
+
         if (count >= limit) {
             return res.status(403).json({
                 error: 'Quote limit reached',
@@ -153,29 +174,42 @@ const checkQuoteLimit = async (req, res, next) => {
 
 /**
  * Check if organization can add more users
+ * Note: Users with counts_towards_limit = false (e.g., accountants) are excluded
+ * Includes seat addons purchased beyond plan limits
  */
 const checkUserLimit = async (req, res, next) => {
     if (!req.organization || !req.planLimits) {
         return next();
     }
 
-    const limit = req.planLimits.maxUsers;
-    if (limit === -1) return next(); // unlimited
+    let baseLimit = req.planLimits.maxUsers;
+    if (baseLimit === -1) return next(); // unlimited
 
     try {
+        // Get seat addons for this organization
+        const addonResult = await db.query(
+            'SELECT COALESCE(SUM(quantity), 0) as extra_seats FROM seat_addons WHERE organization_id = $1 AND status = $2',
+            [req.organization.id, 'active']
+        );
+        const extraSeats = parseInt(addonResult.rows[0].extra_seats) || 0;
+        const totalLimit = baseLimit + extraSeats;
+
+        // Only count users that count towards the limit (excludes accountants)
         const result = await db.query(
-            'SELECT COUNT(*) FROM users WHERE organization_id = $1',
+            'SELECT COUNT(*) FROM users WHERE organization_id = $1 AND (counts_towards_limit = true OR counts_towards_limit IS NULL)',
             [req.organization.id]
         );
 
         const count = parseInt(result.rows[0].count);
-        if (count >= limit) {
+        if (count >= totalLimit) {
             return res.status(403).json({
                 error: 'User limit reached',
                 code: 'USER_LIMIT_REACHED',
-                message: `You've reached your limit of ${limit} users. Upgrade to add more.`,
+                message: `You've reached your limit of ${totalLimit} users${extraSeats > 0 ? ` (${baseLimit} plan + ${extraSeats} addons)` : ''}. Buy more seats or upgrade.`,
                 current: count,
-                limit: limit
+                limit: totalLimit,
+                baseLimit: baseLimit,
+                addonSeats: extraSeats
             });
         }
 
